@@ -111,6 +111,7 @@ class Pipeline:
 
         category = rows[0].category
         result.category = category
+        result.proposed_filenames = [row.output_filename for row in rows]
 
         # -- Filename conflict check --
         for row in rows:
@@ -118,6 +119,12 @@ class Pipeline:
             if out_path.exists():
                 result.flags.append(Flag.NAMING_CONFLICT)
                 logger.warning("Output conflict: %s", out_path)
+
+        # -- Source metadata --
+        try:
+            result.source_size_bytes = img_path.stat().st_size
+        except OSError:
+            pass
 
         # -- Load image --
         image = load_image(img_path)
@@ -127,6 +134,8 @@ class Pipeline:
             result.error_message = "Failed to load image"
             result.processing_time_s = time.perf_counter() - t0
             return result
+
+        result.source_dimensions = (image.shape[1], image.shape[0])
 
         context = ImageContext(
             source_path=img_path,
@@ -172,11 +181,12 @@ class Pipeline:
                 dict.fromkeys(fb_result.flags + fb_validation)
             )
 
+            result.fallback_metrics = fb_result.metrics
+
             if len(fb_all_flags) == 0 and fb_result.final_image is not None:
                 # Fallback recovered the image
                 result.status = ProcessingStatus.RECOVERED
                 result.flags = all_flags  # keep original flags for traceability
-                result.crop_metrics = fb_result.metrics
                 self._save_outputs(
                     fb_result.final_image, rows, output_dir, result
                 )

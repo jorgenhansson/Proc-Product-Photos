@@ -161,9 +161,13 @@ class ProcessingResult:
     source_path: Path
     status: ProcessingStatus = ProcessingStatus.FAILED
     output_paths: list[Path] = field(default_factory=list)
+    proposed_filenames: list[str] = field(default_factory=list)
     flags: list[Flag] = field(default_factory=list)
     crop_metrics: Optional[CropMetrics] = None
+    fallback_metrics: Optional[CropMetrics] = None
     background_type: Optional[BackgroundType] = None
+    source_dimensions: tuple[int, int] = (0, 0)
+    source_size_bytes: int = 0
     processing_time_s: float = 0.0
     crop_time_s: float = 0.0
     fallback_attempted: bool = False

@@ -162,6 +162,52 @@ class TestPipelineEndToEnd:
         )
         assert successful == 1
 
+    def test_manifest_contains_required_fields(self, setup_dirs):
+        """Review manifest must include source dimensions, proposed filenames,
+        and both primary/fallback metrics."""
+        input_dir, output_dir, review_dir = setup_dirs
+        # Pure white image — will be flagged, appear in manifest
+        white = np.full((200, 200, 3), 255, dtype=np.uint8)
+        _save_test_image(input_dir / "FLAGGED.png", white)
+
+        mapping = _make_mapping(("FLAGGED", "ART999", "front", "BALL"))
+        config = PipelineConfig(global_config=GlobalConfig(canvas_size=200))
+
+        pipeline = Pipeline(config, mapping, ClassicalCropStrategy())
+        pipeline.run(input_dir, output_dir, review_dir)
+
+        import json
+        manifest = json.loads((review_dir / "manifest.json").read_text())
+        assert len(manifest) >= 1
+        item = manifest[0]
+
+        # Required fields from issue #8
+        assert "source_size_bytes" in item
+        assert item["source_size_bytes"] > 0
+        assert "source_dimensions" in item
+        assert item["source_dimensions"] == [200, 200]
+        assert "proposed_outputs" in item
+        assert "ART999_front.jpg" in item["proposed_outputs"]
+        assert "primary_metrics" in item
+        assert "fallback_succeeded" in item
+        assert item["fallback_succeeded"] is False
+
+    def test_result_has_source_metadata(self, setup_dirs):
+        """ProcessingResult should contain source dimensions and proposed filenames."""
+        input_dir, output_dir, review_dir = setup_dirs
+        _save_test_image(input_dir / "SKU001.png", _make_white_bg_image())
+
+        mapping = _make_mapping(("SKU001", "ART100", "front", "BALL"))
+        config = PipelineConfig(global_config=GlobalConfig(canvas_size=200))
+
+        pipeline = Pipeline(config, mapping, ClassicalCropStrategy())
+        stats = pipeline.run(input_dir, output_dir, review_dir)
+
+        r = stats.results[0]
+        assert r.source_dimensions == (200, 200)
+        assert r.source_size_bytes > 0
+        assert r.proposed_filenames == ["ART100_front.jpg"]
+
     def test_no_fallback_when_disabled(self, setup_dirs):
         input_dir, output_dir, review_dir = setup_dirs
         # Pure white image — will be flagged (no object)

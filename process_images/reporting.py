@@ -7,9 +7,9 @@ from pathlib import Path
 from typing import Any, Optional
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
-from .models import FLAG_DESCRIPTIONS, ProcessingResult, ProcessingStatus
+from .models import CropMetrics, FLAG_DESCRIPTIONS, ProcessingResult, ProcessingStatus
 
 
 def write_review_manifest(
@@ -22,28 +22,43 @@ def write_review_manifest(
         if r.status in (ProcessingStatus.FLAGGED, ProcessingStatus.FAILED):
             item: dict[str, Any] = {
                 "source": str(r.source_path),
+                "source_size_bytes": r.source_size_bytes,
+                "source_dimensions": list(r.source_dimensions),
                 "category": r.category,
                 "status": r.status.value,
+                "proposed_outputs": r.proposed_filenames,
                 "flags": [f.value for f in r.flags],
                 "flag_descriptions": [
                     FLAG_DESCRIPTIONS.get(f, f.value) for f in r.flags
                 ],
                 "fallback_attempted": r.fallback_attempted,
-                "output_paths": [str(p) for p in r.output_paths],
+                "fallback_succeeded": r.status == ProcessingStatus.RECOVERED,
                 "error": r.error_message,
+                "primary_metrics": _metrics_dict(r.crop_metrics),
+                "fallback_metrics": _metrics_dict(r.fallback_metrics),
             }
-            if r.crop_metrics:
-                item["metrics"] = {
-                    "fill_ratio": round(r.crop_metrics.fill_ratio, 4),
-                    "crop_area_ratio": round(r.crop_metrics.crop_area_ratio, 4),
-                    "object_pixel_count": r.crop_metrics.object_pixel_count,
-                    "component_count": r.crop_metrics.component_count,
-                }
             review_items.append(item)
 
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(review_items, f, indent=2, ensure_ascii=False)
+
+
+def _metrics_dict(metrics: Optional[CropMetrics]) -> Optional[dict]:
+    """Convert CropMetrics to a JSON-serializable dict."""
+    if metrics is None:
+        return None
+    return {
+        "fill_ratio": round(metrics.fill_ratio, 4),
+        "crop_area_ratio": round(metrics.crop_area_ratio, 4),
+        "object_pixel_count": metrics.object_pixel_count,
+        "component_count": metrics.component_count,
+        "margin_px": metrics.margin_px,
+    }
+
+
+_PANEL_LABELS = ["Original", "Mask", "Cropped", "Final"]
+_LABEL_HEIGHT = 20
 
 
 def generate_side_by_side(
@@ -54,7 +69,7 @@ def generate_side_by_side(
     path: Path,
     panel_size: int = 250,
 ) -> None:
-    """Generate a 4-panel side-by-side preview image (original | mask | cropped | final)."""
+    """Generate a labeled 4-panel preview image (original | mask | cropped | final)."""
     panels: list[np.ndarray] = []
 
     for img in [original, mask, cropped, final]:
@@ -74,7 +89,6 @@ def generate_side_by_side(
             pil.thumbnail((panel_size, panel_size), Image.LANCZOS)
             panel = np.array(pil)
 
-            # Pad to exact panel_size x panel_size
             ph, pw = panel.shape[:2]
             padded = np.full(
                 (panel_size, panel_size, 3), 240, dtype=np.uint8
@@ -87,6 +101,18 @@ def generate_side_by_side(
         panels.append(panel)
 
     combined = np.concatenate(panels, axis=1)
+
+    # Add label strip at top
+    total_w = combined.shape[1]
+    label_strip = np.full((_LABEL_HEIGHT, total_w, 3), 255, dtype=np.uint8)
+    label_img = Image.fromarray(label_strip)
+    draw = ImageDraw.Draw(label_img)
+    for i, label in enumerate(_PANEL_LABELS):
+        x = i * panel_size + panel_size // 2
+        draw.text((x, 2), label, fill=(0, 0, 0), anchor="mt")
+    label_arr = np.array(label_img)
+    combined = np.concatenate([label_arr, combined], axis=0)
+
     path.parent.mkdir(parents=True, exist_ok=True)
     Image.fromarray(combined).save(path, format="PNG")
 
