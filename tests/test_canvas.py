@@ -36,6 +36,19 @@ class TestResizeToFit:
         assert result.shape[0] <= 50
         assert result.shape[1] <= 50
 
+    def test_min_output_px_forces_upscale(self):
+        """Tiny image should be upscaled to meet min_output_px."""
+        tiny = np.zeros((10, 10, 3), dtype=np.uint8)
+        result = resize_to_fit(tiny, canvas_size=200, min_output_px=80)
+        assert max(result.shape[:2]) >= 80
+
+    def test_min_output_px_zero_no_upscale(self):
+        """min_output_px=0 should not trigger upscaling."""
+        tiny = np.zeros((10, 10, 3), dtype=np.uint8)
+        result = resize_to_fit(tiny, canvas_size=200, min_output_px=0)
+        assert result.shape[0] <= 10
+        assert result.shape[1] <= 10
+
     def test_downscales_large_image(self):
         large = np.zeros((500, 500, 3), dtype=np.uint8)
         result = resize_to_fit(large, canvas_size=200, fill_ratio_target=0.85)

@@ -206,3 +206,20 @@ class TestThinObjectProtection:
         assert result.crop_bbox is not None
         # Bbox should span from shaft top to head bottom (>200px of the 300px image)
         assert result.crop_bbox.h > 180, f"Bbox should span both shaft and head, got h={result.crop_bbox.h}"
+
+    def test_thin_object_min_crop_width(self, strategy):
+        """A very thin vertical bar should get a minimum crop width
+        of at least height/4 so it's visible after resize."""
+        # 400px tall, 4px wide bar
+        img = np.full((400, 400, 3), 255, dtype=np.uint8)
+        img[10:390, 198:202] = [30, 30, 30]
+
+        config = PipelineConfig(global_config=GlobalConfig(canvas_size=400))
+        ctx = ImageContext(source_path=Path("test.png"), category="CLUB_LONG")
+        result = strategy.crop(img, ctx, config)
+
+        assert result.crop_bbox is not None
+        # Crop width should be at least height//4 = ~95px, not just 4+margins
+        assert result.crop_bbox.w >= 90, (
+            f"Crop width {result.crop_bbox.w} too narrow for thin object"
+        )

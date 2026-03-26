@@ -149,7 +149,9 @@ class AIFallbackCropStrategy(CropStrategy):
         target_fill = (
             cat_config.target_fill_ratio_min + cat_config.target_fill_ratio_max
         ) / 2
-        resized = resize_to_fit(cropped, gc.canvas_size, target_fill)
+        resized = resize_to_fit(
+            cropped, gc.canvas_size, target_fill, cat_config.min_output_px
+        )
         final = place_on_canvas(
             resized,
             gc.canvas_size,

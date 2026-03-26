@@ -25,21 +25,32 @@ def resize_to_fit(
     image: np.ndarray,
     canvas_size: int,
     fill_ratio_target: float = 0.85,
+    min_output_px: int = 0,
 ) -> np.ndarray:
     """Resize image proportionally so its max dimension fills the target ratio.
 
-    Never upscales beyond the original size.  Uses Lanczos resampling.
+    Normally never upscales.  If ``min_output_px`` is set and the result
+    would be smaller than that in both dimensions, controlled upscaling
+    is allowed to prevent tiny products from being invisible on the canvas.
     """
     h, w = image.shape[:2]
     target_dim = int(canvas_size * fill_ratio_target)
 
     scale = min(target_dim / max(1, w), target_dim / max(1, h))
     if scale > 1.0:
-        # Don't upscale; just ensure it fits within canvas
+        # Don't upscale unless min_output_px forces it
         scale = min(1.0, (canvas_size - 4) / max(1, max(w, h)))
 
     new_w = max(1, int(w * scale))
     new_h = max(1, int(h * scale))
+
+    # Enforce minimum output size — allow controlled upscaling
+    if min_output_px > 0 and max(new_w, new_h) < min_output_px:
+        upscale = min_output_px / max(1, max(w, h))
+        # Cap at canvas size
+        upscale = min(upscale, (canvas_size - 4) / max(1, max(w, h)))
+        new_w = max(1, int(w * upscale))
+        new_h = max(1, int(h * upscale))
 
     pil_img = Image.fromarray(image)
     resized = pil_img.resize((new_w, new_h), Image.LANCZOS)

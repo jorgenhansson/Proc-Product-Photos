@@ -126,7 +126,9 @@ class ClassicalCropStrategy(CropStrategy):
         target_fill = (
             cat_config.target_fill_ratio_min + cat_config.target_fill_ratio_max
         ) / 2
-        resized = resize_to_fit(cropped, gc.canvas_size, target_fill)
+        resized = resize_to_fit(
+            cropped, gc.canvas_size, target_fill, cat_config.min_output_px
+        )
 
         # 9. Place on canvas
         final = place_on_canvas(
@@ -206,7 +208,7 @@ class ClassicalCropStrategy(CropStrategy):
         margin_x = margin_px
         margin_y = margin_px
 
-        # Thin-object protection: extra margin in the narrow dimension
+        # Thin-object protection: extra margin + minimum crop width
         if config.thin_object_protection and detect_thin_object(bbox, threshold=3.0):
             if bbox.w < bbox.h:
                 margin_x = int(margin_x * 1.5)
@@ -219,4 +221,22 @@ class ClassicalCropStrategy(CropStrategy):
             w=bbox.w + 2 * margin_x,
             h=bbox.h + 2 * margin_y,
         )
+
+        # Enforce minimum narrow dimension for thin objects so the
+        # product remains visible after resize (not a 1px line)
+        if config.thin_object_protection and detect_thin_object(bbox, threshold=3.0):
+            min_narrow = max(bbox.w, bbox.h) // 4
+            if expanded.w < min_narrow:
+                extra = (min_narrow - expanded.w) // 2
+                expanded = BBox(
+                    expanded.x - extra, expanded.y,
+                    expanded.w + 2 * extra, expanded.h,
+                )
+            elif expanded.h < min_narrow:
+                extra = (min_narrow - expanded.h) // 2
+                expanded = BBox(
+                    expanded.x, expanded.y - extra,
+                    expanded.w, expanded.h + 2 * extra,
+                )
+
         return expanded.clamp(img_w, img_h)

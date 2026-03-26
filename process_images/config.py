@@ -29,6 +29,7 @@ class CategoryConfig:
     centering_bias_x: float = 0.0
     centering_bias_y: float = 0.0
     thin_object_protection: bool = False
+    min_output_px: int = 50
     edge_proximity_px: int = 5
     adaptive_block_size: int = 21
     adaptive_c: float = 10.0
