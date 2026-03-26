@@ -19,8 +19,6 @@ CATEGORY_DEFAULTS: dict[str, CategoryConfig] = {
         target_fill_ratio_min=0.30,
         target_fill_ratio_max=0.85,
         thin_object_protection=True,
-        shadow_tolerance=10.0,
-        fallback_sensitivity=0.7,
     ),
     "CLUB_HEAD_ONLY": CategoryConfig(
         name="CLUB_HEAD_ONLY",
@@ -59,7 +57,6 @@ CATEGORY_DEFAULTS: dict[str, CategoryConfig] = {
     "APPAREL_WORN_OR_SHAPED": CategoryConfig(
         name="APPAREL_WORN_OR_SHAPED",
         margin_pct=0.08,
-        shadow_tolerance=15.0,
         target_fill_ratio_min=0.25,
         target_fill_ratio_max=0.85,
     ),
@@ -69,7 +66,6 @@ CATEGORY_DEFAULTS: dict[str, CategoryConfig] = {
         min_component_size=200,
         target_fill_ratio_min=0.20,
         target_fill_ratio_max=0.70,
-        fallback_sensitivity=0.6,
     ),
     "BOX_OR_PACKAGING": CategoryConfig(
         name="BOX_OR_PACKAGING",

@@ -66,8 +66,6 @@ categories:
     centering_bias_x: 0.0
     centering_bias_y: 0.0
     thin_object_protection: true  # Extra margin on narrow dimension
-    shadow_tolerance: 10.0
-    fallback_sensitivity: 0.7
 
   CLUB_HEAD_ONLY:
     margin_pct: 0.06
@@ -95,7 +93,6 @@ categories:
 
   APPAREL_WORN_OR_SHAPED:
     margin_pct: 0.08
-    shadow_tolerance: 15.0
     target_fill_ratio: [0.25, 0.85]
     adaptive_block_size: 25        # Larger block for softer transitions
     adaptive_c: 8.0                # Lower C to capture softer edges
@@ -104,7 +101,6 @@ categories:
     margin_pct: 0.10
     min_component_size: 200       # Smaller objects tolerated
     target_fill_ratio: [0.20, 0.70]
-    fallback_sensitivity: 0.6
 
   BOX_OR_PACKAGING:
     margin_pct: 0.04

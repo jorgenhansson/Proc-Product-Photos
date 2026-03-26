@@ -24,8 +24,6 @@ class CategoryConfig:
     centering_bias_x: float = 0.0
     centering_bias_y: float = 0.0
     thin_object_protection: bool = False
-    shadow_tolerance: float = 10.0
-    fallback_sensitivity: float = 0.5
     edge_proximity_px: int = 5
     adaptive_block_size: int = 21
     adaptive_c: float = 10.0
@@ -170,10 +168,6 @@ def _build_category_config(
     cfg.centering_bias_y = raw.get("centering_bias_y", cfg.centering_bias_y)
     cfg.thin_object_protection = raw.get(
         "thin_object_protection", cfg.thin_object_protection
-    )
-    cfg.shadow_tolerance = raw.get("shadow_tolerance", cfg.shadow_tolerance)
-    cfg.fallback_sensitivity = raw.get(
-        "fallback_sensitivity", cfg.fallback_sensitivity
     )
     cfg.edge_proximity_px = raw.get("edge_proximity_px", cfg.edge_proximity_px)
     # Inherit global adaptive threshold defaults, then allow category override
