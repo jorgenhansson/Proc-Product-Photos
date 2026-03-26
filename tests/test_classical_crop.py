@@ -9,6 +9,7 @@ import pytest
 
 from process_images.config import PipelineConfig, GlobalConfig
 from process_images.crop.classical import ClassicalCropStrategy
+from process_images.crop.morphology import clean_mask, merge_collinear_components
 from process_images.models import Flag, ImageContext
 
 
@@ -129,3 +130,79 @@ class TestClassicalCrop:
         center = result.final_image[100, 100]
         assert int(center[1]) > 50, "Green channel should be present"
         assert int(center[0]) > 50, "Red channel should show white bleed-through"
+
+
+class TestThinObjectProtection:
+    """Tests for skip_open, collinear merge, and shaft preservation."""
+
+    def test_skip_open_preserves_thin_line(self):
+        """Morphological open deletes thin lines; skip_open should preserve them."""
+        # Create a mask with a 4px-wide vertical line
+        mask = np.zeros((200, 200), dtype=np.uint8)
+        mask[10:190, 98:102] = 255
+
+        result_with_open = clean_mask(mask, kernel_size=5, iterations=2, skip_open=False)
+        result_without_open = clean_mask(mask, kernel_size=5, iterations=2, skip_open=True)
+
+        # With open: thin line should be eroded away (or mostly gone)
+        # Without open: line should be preserved
+        assert np.count_nonzero(result_without_open) > np.count_nonzero(result_with_open)
+        assert np.count_nonzero(result_without_open) > 0
+
+    def test_skip_open_still_closes_gaps(self):
+        """skip_open=True should still fill small holes (morph close runs)."""
+        mask = np.zeros((200, 200), dtype=np.uint8)
+        mask[80:120, 80:120] = 255
+        mask[98:102, 98:102] = 0  # small 4x4 hole in center
+
+        result = clean_mask(mask, kernel_size=5, iterations=2, skip_open=True)
+        # Small hole should be filled by close operation
+        assert result[100, 100] == 255
+
+    def test_collinear_merge_two_vertical_components(self):
+        """Two vertically aligned components should be merged."""
+        mask = np.zeros((200, 200), dtype=np.uint8)
+        # Component 1: top block
+        mask[10:60, 90:110] = 255
+        # Component 2: bottom block, vertically aligned
+        mask[140:190, 90:110] = 255
+
+        result = merge_collinear_components(mask, min_size=100)
+        # Both components should be in the result
+        assert result[30, 100] == 255   # top
+        assert result[160, 100] == 255  # bottom
+
+    def test_collinear_merge_not_aligned(self):
+        """Two non-aligned components should NOT be merged."""
+        mask = np.zeros((200, 200), dtype=np.uint8)
+        # Component 1: top-left
+        mask[10:40, 10:40] = 255
+        # Component 2: bottom-right (diagonal, not collinear)
+        mask[160:190, 160:190] = 255
+
+        result = merge_collinear_components(mask, min_size=100, collinearity_threshold=0.15)
+        original_count = np.count_nonzero(mask)
+        result_count = np.count_nonzero(result)
+        # For 2 components, diagonal alignment (dx≈dy) has off_axis/span ≈ 1.0,
+        # which exceeds the threshold — should not merge
+        # Result should equal original (no merge)
+        assert result_count == original_count
+
+    def test_club_shaft_preserved_in_pipeline(self, strategy, config_200, thin_object_image):
+        """CLUB_LONG thin shaft should survive the full pipeline."""
+        ctx = ImageContext(source_path=Path("test.png"), category="CLUB_LONG")
+        result = strategy.crop(thin_object_image, ctx, config_200)
+        assert result.final_image is not None
+        # Shaft should be visible on canvas (dark pixels exist)
+        dark_pixels = np.sum(result.final_image < 100)
+        assert dark_pixels > 0, "Shaft should be visible on canvas"
+
+    def test_club_head_shaft_merged(self, strategy, club_head_shaft_image):
+        """Separated club head and shaft should be merged by collinear logic."""
+        config = PipelineConfig(global_config=GlobalConfig(canvas_size=300))
+        ctx = ImageContext(source_path=Path("test.png"), category="CLUB_LONG")
+        result = strategy.crop(club_head_shaft_image, ctx, config)
+        assert result.final_image is not None
+        assert result.bbox is not None
+        # Bbox should span from shaft top to head bottom (>200px of the 300px image)
+        assert result.bbox.h > 180, f"Bbox should span both shaft and head, got h={result.bbox.h}"

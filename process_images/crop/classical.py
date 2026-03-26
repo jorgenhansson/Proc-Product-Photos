@@ -29,6 +29,7 @@ from .morphology import (
     compute_bbox,
     detect_thin_object,
     find_main_component,
+    merge_collinear_components,
 )
 
 logger = logging.getLogger(__name__)
@@ -65,17 +66,36 @@ class ClassicalCropStrategy(CropStrategy):
         # 2. Generate mask
         mask = self._generate_mask(image, bg_type, gc, cat_config)
 
-        # 3. Clean mask
+        # 3. Clean mask — skip morph-open for thin-object categories
+        #    to prevent shaft deletion
         mask = clean_mask(
             mask,
             kernel_size=cat_config.morph_kernel_size,
             iterations=cat_config.morph_iterations,
+            skip_open=cat_config.thin_object_protection,
         )
 
         # 4. Find main component
         filtered_mask, sig_count = find_main_component(
             mask, cat_config.min_component_size
         )
+
+        # 4b. For thin-object categories with multiple components,
+        #     attempt collinear merge (shaft + head).
+        #     Merged components may still be physically separated, so
+        #     use the full merged mask (not find_main_component) and
+        #     treat the merged set as a single logical object.
+        if sig_count > 1 and cat_config.thin_object_protection:
+            merged = merge_collinear_components(
+                mask, cat_config.min_component_size
+            )
+            merged_pixels = int(np.count_nonzero(merged))
+            if merged_pixels > np.count_nonzero(filtered_mask):
+                filtered_mask = merged
+                sig_count = 1  # treat merged group as single object
+                logger.debug(
+                    "Collinear merge: combined %d px", merged_pixels
+                )
 
         if sig_count > 1:
             flags.append(Flag.MULTIPLE_LARGE_COMPONENTS)
@@ -195,13 +215,11 @@ class ClassicalCropStrategy(CropStrategy):
         margin_y = margin_px
 
         # Thin-object protection: extra margin in the narrow dimension
-        if config.thin_object_protection:
-            aspect = max(bbox.w, bbox.h) / max(1, min(bbox.w, bbox.h))
-            if aspect > 3.0:
-                if bbox.w < bbox.h:
-                    margin_x = int(margin_x * 1.5)
-                else:
-                    margin_y = int(margin_y * 1.5)
+        if config.thin_object_protection and detect_thin_object(bbox, threshold=3.0):
+            if bbox.w < bbox.h:
+                margin_x = int(margin_x * 1.5)
+            else:
+                margin_y = int(margin_y * 1.5)
 
         expanded = BBox(
             x=bbox.x - margin_x,

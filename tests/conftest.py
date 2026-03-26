@@ -84,6 +84,23 @@ def thin_object_image() -> np.ndarray:
     return img
 
 
+@pytest.fixture
+def club_head_shaft_image() -> np.ndarray:
+    """300x300 white image with separated club head and shaft.
+
+    The shaft (thin vertical bar) and head (wider block at bottom)
+    are vertically aligned but disconnected — simulates a gap from
+    aggressive thresholding.  Larger image to ensure both components
+    exceed min_component_size thresholds.
+    """
+    img = np.full((300, 300, 3), 255, dtype=np.uint8)
+    # Shaft: 10px wide bar in upper portion
+    img[10:180, 145:155] = [30, 30, 30]
+    # Head: wider block at bottom, vertically aligned, gap of 20px
+    img[200:260, 120:180] = [20, 20, 20]
+    return img
+
+
 # ---------------------------------------------------------------------------
 # Configurations
 # ---------------------------------------------------------------------------
