@@ -200,3 +200,71 @@ class TestRelaxedTolerance:
         default_flags = validate_crop_result(result, (200, 200), context, config)
         explicit_flags = validate_crop_result(result, (200, 200), context, config, tolerance=1.0)
         assert default_flags == explicit_flags
+
+
+class TestAspectRatioValidation:
+    """Tests for category-specific aspect ratio checks."""
+
+    def test_ball_square_bbox_passes(self, config):
+        """A roughly square bbox for BALL should not flag."""
+        context = ImageContext(source_path=Path("t.png"), category="BALL")
+        result = CropResult(
+            mask=np.zeros((200, 200), dtype=np.uint8),
+            object_bbox=BBox(50, 50, 80, 90),  # aspect ~1.1
+            metrics=CropMetrics(fill_ratio=0.5),
+        )
+        flags = validate_crop_result(result, (200, 200), context, config)
+        assert Flag.CROP_CATEGORY_INCONSISTENT not in flags
+
+    def test_ball_elongated_bbox_flags(self, config):
+        """An elongated bbox for BALL should flag as inconsistent."""
+        context = ImageContext(source_path=Path("t.png"), category="BALL")
+        result = CropResult(
+            mask=np.zeros((200, 200), dtype=np.uint8),
+            object_bbox=BBox(50, 10, 20, 180),  # aspect 9:1
+            metrics=CropMetrics(fill_ratio=0.5),
+        )
+        flags = validate_crop_result(result, (200, 200), context, config)
+        assert Flag.CROP_CATEGORY_INCONSISTENT in flags
+
+    def test_club_long_elongated_passes(self, config):
+        """An elongated bbox for CLUB_LONG should pass."""
+        context = ImageContext(source_path=Path("t.png"), category="CLUB_LONG")
+        result = CropResult(
+            mask=np.zeros((200, 200), dtype=np.uint8),
+            object_bbox=BBox(90, 10, 20, 180),  # aspect 9:1
+            metrics=CropMetrics(fill_ratio=0.5),
+        )
+        flags = validate_crop_result(result, (200, 200), context, config)
+        assert Flag.CROP_CATEGORY_INCONSISTENT not in flags
+
+    def test_club_long_square_bbox_flags(self, config):
+        """A square bbox for CLUB_LONG should flag (expected elongated)."""
+        context = ImageContext(source_path=Path("t.png"), category="CLUB_LONG")
+        result = CropResult(
+            mask=np.zeros((200, 200), dtype=np.uint8),
+            object_bbox=BBox(50, 50, 80, 80),  # aspect 1:1
+            metrics=CropMetrics(fill_ratio=0.5),
+        )
+        flags = validate_crop_result(result, (200, 200), context, config)
+        assert Flag.CROP_CATEGORY_INCONSISTENT in flags
+
+    def test_orientation_independent(self, config):
+        """Horizontal and vertical clubs should both pass."""
+        context = ImageContext(source_path=Path("t.png"), category="CLUB_LONG")
+        # Vertical club
+        r1 = CropResult(
+            mask=np.zeros((200, 200), dtype=np.uint8),
+            object_bbox=BBox(90, 10, 20, 180),  # 9:1 vertical
+            metrics=CropMetrics(fill_ratio=0.5),
+        )
+        # Horizontal club
+        r2 = CropResult(
+            mask=np.zeros((200, 200), dtype=np.uint8),
+            object_bbox=BBox(10, 90, 180, 20),  # 9:1 horizontal
+            metrics=CropMetrics(fill_ratio=0.5),
+        )
+        f1 = validate_crop_result(r1, (200, 200), context, config)
+        f2 = validate_crop_result(r2, (200, 200), context, config)
+        assert Flag.CROP_CATEGORY_INCONSISTENT not in f1
+        assert Flag.CROP_CATEGORY_INCONSISTENT not in f2

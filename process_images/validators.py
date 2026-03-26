@@ -58,6 +58,16 @@ def validate_crop_result(
         if bbox_ratio < effective_min_bbox:
             flags.append(Flag.BBOX_TOO_SMALL)
 
+        # Aspect ratio check (orientation-independent: uses max/min)
+        ob = result.object_bbox
+        if ob.w > 0 and ob.h > 0:
+            ar = max(ob.w, ob.h) / min(ob.w, ob.h)
+            if (
+                ar < cat_config.expected_aspect_ratio_min
+                or ar > cat_config.expected_aspect_ratio_max
+            ):
+                flags.append(Flag.CROP_CATEGORY_INCONSISTENT)
+
     # -- Fill ratio (tolerance widens the acceptable range) --
     if result.metrics.fill_ratio > 0:
         effective_fill_min = cat_config.target_fill_ratio_min * tolerance

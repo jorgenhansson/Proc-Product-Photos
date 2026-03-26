@@ -19,6 +19,8 @@ CATEGORY_DEFAULTS: dict[str, CategoryConfig] = {
         target_fill_ratio_min=0.30,
         target_fill_ratio_max=0.85,
         thin_object_protection=True,
+        expected_aspect_ratio_min=2.0,
+        expected_aspect_ratio_max=25.0,
     ),
     "CLUB_HEAD_ONLY": CategoryConfig(
         name="CLUB_HEAD_ONLY",
@@ -27,6 +29,8 @@ CATEGORY_DEFAULTS: dict[str, CategoryConfig] = {
         min_component_size=400,
         target_fill_ratio_min=0.35,
         target_fill_ratio_max=0.85,
+        expected_aspect_ratio_min=1.0,
+        expected_aspect_ratio_max=3.0,
     ),
     "BALL": CategoryConfig(
         name="BALL",
@@ -34,6 +38,8 @@ CATEGORY_DEFAULTS: dict[str, CategoryConfig] = {
         morph_kernel_size=5,
         target_fill_ratio_min=0.30,
         target_fill_ratio_max=0.75,
+        expected_aspect_ratio_min=1.0,
+        expected_aspect_ratio_max=1.5,
     ),
     "SHOE": CategoryConfig(
         name="SHOE",
@@ -41,24 +47,32 @@ CATEGORY_DEFAULTS: dict[str, CategoryConfig] = {
         centering_bias_y=0.02,
         target_fill_ratio_min=0.35,
         target_fill_ratio_max=0.85,
+        expected_aspect_ratio_min=1.3,
+        expected_aspect_ratio_max=4.0,
     ),
     "BAG": CategoryConfig(
         name="BAG",
         margin_pct=0.05,
         target_fill_ratio_min=0.40,
         target_fill_ratio_max=0.90,
+        expected_aspect_ratio_min=1.0,
+        expected_aspect_ratio_max=3.5,
     ),
     "APPAREL_FOLDED": CategoryConfig(
         name="APPAREL_FOLDED",
         margin_pct=0.06,
         target_fill_ratio_min=0.30,
         target_fill_ratio_max=0.80,
+        expected_aspect_ratio_min=1.0,
+        expected_aspect_ratio_max=3.0,
     ),
     "APPAREL_WORN_OR_SHAPED": CategoryConfig(
         name="APPAREL_WORN_OR_SHAPED",
         margin_pct=0.08,
         target_fill_ratio_min=0.25,
         target_fill_ratio_max=0.85,
+        expected_aspect_ratio_min=1.0,
+        expected_aspect_ratio_max=4.0,
     ),
     "ACCESSORY_SMALL": CategoryConfig(
         name="ACCESSORY_SMALL",
@@ -72,6 +86,8 @@ CATEGORY_DEFAULTS: dict[str, CategoryConfig] = {
         margin_pct=0.04,
         target_fill_ratio_min=0.40,
         target_fill_ratio_max=0.90,
+        expected_aspect_ratio_min=1.0,
+        expected_aspect_ratio_max=3.0,
     ),
 }
 

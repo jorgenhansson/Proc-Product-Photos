@@ -149,7 +149,7 @@ class TestPipelineEndToEnd:
             input_dir / "SKU001.tif", _make_white_bg_image(), fmt="TIFF"
         )
 
-        mapping = _make_mapping(("SKU001", "ART200", "front", "CLUB_LONG"))
+        mapping = _make_mapping(("SKU001", "ART200", "front", "BALL"))
         config = PipelineConfig(global_config=GlobalConfig(canvas_size=200))
 
         pipeline = Pipeline(config, mapping, ClassicalCropStrategy())

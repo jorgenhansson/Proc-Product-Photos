@@ -31,6 +31,8 @@ class CategoryConfig:
     thin_object_protection: bool = False
     min_output_px: int = 50
     edge_proximity_px: int = 5
+    expected_aspect_ratio_min: float = 1.0
+    expected_aspect_ratio_max: float = 15.0
     adaptive_block_size: int = 21
     adaptive_c: float = 10.0
 
