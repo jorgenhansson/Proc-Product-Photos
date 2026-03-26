@@ -1,8 +1,13 @@
-"""Configuration loading and management from YAML rules files."""
+"""Configuration loading and management from YAML rules files.
+
+Uses dataclass introspection to avoid per-field parser lines.
+Adding a new field to CategoryConfig or GlobalConfig automatically
+makes it parseable from YAML — no parser updates needed.
+"""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
@@ -76,15 +81,10 @@ class PipelineConfig:
         return self._default_category_config(category)
 
     def _default_category_config(self, category: str) -> CategoryConfig:
-        cfg = CategoryConfig(name=category)
-        g = self.global_config
-        cfg.morph_kernel_size = g.morph_kernel_size
-        cfg.morph_iterations = g.morph_iterations
-        cfg.min_component_size = g.min_component_size
-        cfg.edge_proximity_px = g.edge_proximity_px
-        cfg.adaptive_block_size = g.adaptive_block_size
-        cfg.adaptive_c = g.adaptive_c
-        return cfg
+        """Build a CategoryConfig inheriting shared fields from GlobalConfig."""
+        inherited = _inherit_global_to_category(self.global_config)
+        inherited["name"] = category
+        return CategoryConfig(**inherited)
 
 
 def load_config(path: Path) -> PipelineConfig:
@@ -95,83 +95,75 @@ def load_config(path: Path) -> PipelineConfig:
     config = PipelineConfig()
 
     if "global" in raw:
-        _apply_global(raw["global"], config.global_config)
+        _apply_dataclass(raw["global"], config.global_config)
 
     if "fallback" in raw:
-        _apply_fallback(raw["fallback"], config.fallback)
+        _apply_dataclass(raw["fallback"], config.fallback)
 
     if "categories" in raw:
         for name, cat_raw in raw["categories"].items():
-            cat = _build_category_config(name, cat_raw, config.global_config)
+            cat = _build_category_config(name, cat_raw or {}, config.global_config)
             config.categories[name] = cat
 
     return config
 
 
-def _apply_global(raw: dict[str, Any], gc: GlobalConfig) -> None:
-    gc.canvas_size = raw.get("canvas_size", gc.canvas_size)
-    gc.jpeg_quality = raw.get("jpeg_quality", gc.jpeg_quality)
-    bg = raw.get("background_color", list(gc.background_color))
-    gc.background_color = tuple(bg)
-    gc.white_distance_threshold = raw.get(
-        "white_distance_threshold", gc.white_distance_threshold
-    )
-    gc.edge_whiteness_threshold = raw.get(
-        "edge_whiteness_threshold", gc.edge_whiteness_threshold
-    )
-    gc.alpha_threshold = raw.get("alpha_threshold", gc.alpha_threshold)
-    gc.min_object_ratio = raw.get("min_object_ratio", gc.min_object_ratio)
-    gc.max_bbox_ratio = raw.get("max_bbox_ratio", gc.max_bbox_ratio)
-    gc.min_bbox_ratio = raw.get("min_bbox_ratio", gc.min_bbox_ratio)
-    gc.morph_kernel_size = raw.get("morph_kernel_size", gc.morph_kernel_size)
-    gc.morph_iterations = raw.get("morph_iterations", gc.morph_iterations)
-    gc.min_component_size = raw.get("min_component_size", gc.min_component_size)
-    gc.edge_proximity_px = raw.get("edge_proximity_px", gc.edge_proximity_px)
-    gc.adaptive_block_size = raw.get("adaptive_block_size", gc.adaptive_block_size)
-    gc.adaptive_c = raw.get("adaptive_c", gc.adaptive_c)
-    gc.filename_pattern = raw.get("filename_pattern", gc.filename_pattern)
+# ---------------------------------------------------------------------------
+# Generic dataclass-aware parsers
+# ---------------------------------------------------------------------------
+
+_CATEGORY_FIELDS = {f.name for f in fields(CategoryConfig)}
 
 
-def _apply_fallback(raw: dict[str, Any], fc: FallbackConfig) -> None:
-    fc.enabled = raw.get("enabled", fc.enabled)
-    fc.strategy = raw.get("strategy", fc.strategy)
-    fc.grabcut_iterations = raw.get("grabcut_iterations", fc.grabcut_iterations)
-    fc.max_attempts = raw.get("max_attempts", fc.max_attempts)
+def _apply_dataclass(raw: dict[str, Any], obj: object) -> None:
+    """Apply YAML dict values to a dataclass instance.
+
+    Only sets attributes that exist on the dataclass. Handles
+    background_color tuple specially.
+    """
+    for f in fields(obj.__class__):
+        if f.name not in raw:
+            continue
+        value = raw[f.name]
+        if f.name == "background_color":
+            value = tuple(value)
+        setattr(obj, f.name, value)
+
+
+def _inherit_global_to_category(g: GlobalConfig) -> dict[str, Any]:
+    """Extract fields shared between GlobalConfig and CategoryConfig."""
+    return {
+        f.name: getattr(g, f.name)
+        for f in fields(GlobalConfig)
+        if f.name in _CATEGORY_FIELDS
+    }
 
 
 def _build_category_config(
     name: str, raw: dict[str, Any], g: GlobalConfig
 ) -> CategoryConfig:
-    cfg = CategoryConfig(name=name)
-    # Inherit global defaults
-    cfg.morph_kernel_size = g.morph_kernel_size
-    cfg.morph_iterations = g.morph_iterations
-    cfg.min_component_size = g.min_component_size
-    cfg.edge_proximity_px = g.edge_proximity_px
+    """Build a CategoryConfig from YAML with global inheritance.
 
-    # Override with category-specific values
-    cfg.margin_pct = raw.get("margin_pct", cfg.margin_pct)
-    cfg.threshold_bias = raw.get("threshold_bias", cfg.threshold_bias)
-    cfg.morph_kernel_size = raw.get("morph_kernel_size", cfg.morph_kernel_size)
-    cfg.morph_iterations = raw.get("morph_iterations", cfg.morph_iterations)
-    cfg.min_component_size = raw.get("min_component_size", cfg.min_component_size)
+    Priority: category YAML > global inherited > CategoryConfig defaults.
+    Handles target_fill_ratio [min, max] list syntax.
+    """
+    # Start with global-inherited defaults for shared fields
+    inherited = _inherit_global_to_category(g)
 
-    fill = raw.get(
-        "target_fill_ratio",
-        [cfg.target_fill_ratio_min, cfg.target_fill_ratio_max],
-    )
+    # Handle target_fill_ratio list → two separate fields
+    raw = dict(raw)  # copy to avoid mutating caller's dict
+    fill = raw.pop("target_fill_ratio", None)
+
+    # Merge: inherited < raw < name
+    merged = {**inherited, **raw, "name": name}
+
+    # Filter to valid CategoryConfig fields only
+    valid = {k: v for k, v in merged.items() if k in _CATEGORY_FIELDS}
+    cfg = CategoryConfig(**valid)
+
+    # Apply fill ratio list if provided
     if isinstance(fill, list) and len(fill) == 2:
         cfg.target_fill_ratio_min = float(fill[0])
         cfg.target_fill_ratio_max = float(fill[1])
-
-    cfg.centering_bias_x = raw.get("centering_bias_x", cfg.centering_bias_x)
-    cfg.centering_bias_y = raw.get("centering_bias_y", cfg.centering_bias_y)
-    cfg.thin_object_protection = raw.get(
-        "thin_object_protection", cfg.thin_object_protection
-    )
-    cfg.edge_proximity_px = raw.get("edge_proximity_px", cfg.edge_proximity_px)
-    # Inherit global adaptive threshold defaults, then allow category override
-    cfg.adaptive_block_size = raw.get("adaptive_block_size", g.adaptive_block_size)
-    cfg.adaptive_c = float(raw.get("adaptive_c", g.adaptive_c))
 
     return cfg

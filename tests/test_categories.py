@@ -69,3 +69,76 @@ class TestConfigLoading:
         ball = config.categories["BALL"]
         # morph_kernel_size not overridden in BALL, should come from global
         assert ball.morph_kernel_size == config.global_config.morph_kernel_size
+
+    def test_all_shared_fields_auto_inherited(self, tmp_path):
+        """Every field shared between GlobalConfig and CategoryConfig
+        should be automatically inherited without manual parser code.
+        """
+        from dataclasses import fields as dc_fields
+        from process_images.config import GlobalConfig, CategoryConfig
+
+        yaml_path = tmp_path / "rules.yaml"
+        yaml_path.write_text(
+            "global:\n  adaptive_block_size: 99\n  adaptive_c: 42.0\n"
+            "  edge_proximity_px: 17\n"
+            "categories:\n  TEST_CAT:\n    margin_pct: 0.1\n",
+            encoding="utf-8",
+        )
+        config = load_config(yaml_path)
+        cat = config.categories["TEST_CAT"]
+        gc = config.global_config
+
+        # All fields that exist on both should match global
+        shared = {
+            f.name for f in dc_fields(GlobalConfig)
+        } & {f.name for f in dc_fields(CategoryConfig)}
+        for field_name in shared:
+            assert getattr(cat, field_name) == getattr(gc, field_name), (
+                f"{field_name}: category={getattr(cat, field_name)} "
+                f"!= global={getattr(gc, field_name)}"
+            )
+
+    def test_category_override_beats_global(self, tmp_path):
+        """Category-specific YAML values should override global inheritance."""
+        yaml_path = tmp_path / "rules.yaml"
+        yaml_path.write_text(
+            "global:\n  morph_kernel_size: 7\n"
+            "categories:\n  BALL:\n    morph_kernel_size: 3\n",
+            encoding="utf-8",
+        )
+        config = load_config(yaml_path)
+        assert config.global_config.morph_kernel_size == 7
+        assert config.categories["BALL"].morph_kernel_size == 3
+
+    def test_target_fill_ratio_list_syntax(self, tmp_path):
+        """target_fill_ratio: [0.3, 0.8] should set min and max."""
+        yaml_path = tmp_path / "rules.yaml"
+        yaml_path.write_text(
+            "categories:\n  SHOE:\n    target_fill_ratio: [0.3, 0.8]\n",
+            encoding="utf-8",
+        )
+        config = load_config(yaml_path)
+        shoe = config.categories["SHOE"]
+        assert shoe.target_fill_ratio_min == 0.3
+        assert shoe.target_fill_ratio_max == 0.8
+
+    def test_unknown_yaml_keys_ignored(self, tmp_path):
+        """YAML keys that don't match CategoryConfig fields should be ignored."""
+        yaml_path = tmp_path / "rules.yaml"
+        yaml_path.write_text(
+            "categories:\n  BAG:\n    margin_pct: 0.05\n    bogus_field: 999\n",
+            encoding="utf-8",
+        )
+        config = load_config(yaml_path)
+        assert config.categories["BAG"].margin_pct == 0.05
+        assert not hasattr(config.categories["BAG"], "bogus_field")
+
+    def test_default_category_config_inherits(self):
+        """PipelineConfig._default_category_config should inherit from global."""
+        from process_images.config import GlobalConfig, PipelineConfig
+        gc = GlobalConfig(adaptive_block_size=77, adaptive_c=3.14)
+        pc = PipelineConfig(global_config=gc)
+        cat = pc._default_category_config("UNKNOWN")
+        assert cat.adaptive_block_size == 77
+        assert cat.adaptive_c == 3.14
+        assert cat.name == "UNKNOWN"
