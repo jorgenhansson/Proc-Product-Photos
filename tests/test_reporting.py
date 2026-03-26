@@ -8,6 +8,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from PIL import Image
 
 from process_images.models import (
     CropMetrics,
@@ -15,7 +16,11 @@ from process_images.models import (
     ProcessingResult,
     ProcessingStatus,
 )
-from process_images.reporting import write_html_report, write_review_manifest
+from process_images.reporting import (
+    generate_side_by_side,
+    write_html_report,
+    write_review_manifest,
+)
 from process_images.statistics import StatsAccumulator
 
 
@@ -142,3 +147,40 @@ class TestReviewManifest:
             assert "fallback_succeeded" in item
             assert "flags" in item
             assert "flag_descriptions" in item
+
+
+class TestSideBySide:
+    def test_generates_labeled_preview(self, tmp_path: Path):
+        """Side-by-side preview should produce a PNG with 4 panels + labels."""
+        original = np.full((100, 100, 3), 128, dtype=np.uint8)
+        mask = np.zeros((100, 100), dtype=np.uint8)
+        mask[20:80, 20:80] = 255
+        cropped = np.full((60, 60, 3), 64, dtype=np.uint8)
+        final = np.full((200, 200, 3), 255, dtype=np.uint8)
+        final[50:150, 50:150] = [64, 64, 64]
+
+        path = tmp_path / "preview.png"
+        generate_side_by_side(original, mask, cropped, final, path, panel_size=100)
+
+        assert path.exists()
+        img = Image.open(path)
+        # 4 panels of 100px wide = 400px, plus label strip height
+        assert img.width == 400
+        assert img.height > 100  # panel + label strip
+
+    def test_handles_none_panels(self, tmp_path: Path):
+        """None panels should be rendered as gray placeholders."""
+        original = np.full((50, 50, 3), 100, dtype=np.uint8)
+        path = tmp_path / "partial.png"
+        generate_side_by_side(original, None, None, None, path, panel_size=80)
+        assert path.exists()
+        img = Image.open(path)
+        assert img.width == 320  # 4 * 80
+
+    def test_handles_rgba_panels(self, tmp_path: Path):
+        """RGBA images should be handled without crashing."""
+        original = np.zeros((50, 50, 4), dtype=np.uint8)
+        original[:, :, 3] = 255
+        path = tmp_path / "rgba.png"
+        generate_side_by_side(original, None, None, None, path, panel_size=80)
+        assert path.exists()

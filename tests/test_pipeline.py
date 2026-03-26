@@ -279,3 +279,24 @@ class TestPipelineEndToEnd:
         assert Flag.NAMING_CONFLICT in r.flags
         # File should be overwritten (re-run is valid)
         assert pre_existing.stat().st_size != old_size
+
+    def test_multi_row_mapping_produces_multiple_outputs(self, setup_dirs):
+        """One SKU mapped to multiple output files should produce all of them."""
+        input_dir, output_dir, review_dir = setup_dirs
+        _save_test_image(input_dir / "SKU001.png", _make_white_bg_image())
+
+        # Same SKU → two different output files
+        mapping = _make_mapping(
+            ("SKU001", "ART100", "front", "BALL"),
+            ("SKU001", "ART100", "side", "BALL"),
+        )
+        config = PipelineConfig(global_config=GlobalConfig(canvas_size=200))
+
+        pipeline = Pipeline(config, mapping, ClassicalCropStrategy())
+        stats = pipeline.run(input_dir, output_dir, review_dir)
+
+        assert stats.total_attempted == 1  # one input image
+        r = stats.results[0]
+        assert len(r.output_paths) == 2
+        assert (output_dir / "ART100_front.jpg").exists()
+        assert (output_dir / "ART100_side.jpg").exists()
