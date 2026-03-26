@@ -48,9 +48,9 @@ class TestClassicalCrop:
     def test_bbox_is_computed(self, strategy, config_200, white_bg_image):
         ctx = ImageContext(source_path=Path("test.png"), category="BALL")
         result = strategy.crop(white_bg_image, ctx, config_200)
-        assert result.bbox is not None
-        assert result.bbox.w > 0
-        assert result.bbox.h > 0
+        assert result.crop_bbox is not None
+        assert result.crop_bbox.w > 0
+        assert result.crop_bbox.h > 0
 
     def test_fill_ratio_is_positive(self, strategy, config_200, white_bg_image):
         ctx = ImageContext(source_path=Path("test.png"), category="BALL")
@@ -203,6 +203,6 @@ class TestThinObjectProtection:
         ctx = ImageContext(source_path=Path("test.png"), category="CLUB_LONG")
         result = strategy.crop(club_head_shaft_image, ctx, config)
         assert result.final_image is not None
-        assert result.bbox is not None
+        assert result.crop_bbox is not None
         # Bbox should span from shaft top to head bottom (>200px of the 300px image)
-        assert result.bbox.h > 180, f"Bbox should span both shaft and head, got h={result.bbox.h}"
+        assert result.crop_bbox.h > 180, f"Bbox should span both shaft and head, got h={result.crop_bbox.h}"

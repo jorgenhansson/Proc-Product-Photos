@@ -166,7 +166,8 @@ class AIFallbackCropStrategy(CropStrategy):
             fill_ratio=fill,
             crop_area_ratio=expanded.area / max(1, h * w),
             margin_px=max(mx, my),
-            bbox=expanded,
+            object_bbox=bbox,
+            crop_bbox=expanded,
             object_pixel_count=int(np.count_nonzero(filtered)),
             component_count=sig_count,
         )
@@ -175,7 +176,8 @@ class AIFallbackCropStrategy(CropStrategy):
 
         return CropResult(
             mask=filtered,
-            bbox=expanded,
+            object_bbox=bbox,
+            crop_bbox=expanded,
             cropped_image=cropped,
             final_image=final,
             metrics=metrics,

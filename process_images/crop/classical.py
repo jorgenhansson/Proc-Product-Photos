@@ -113,18 +113,8 @@ class ClassicalCropStrategy(CropStrategy):
                 metrics=CropMetrics(),
             )
 
-        # Mask-size check
+        # Object pixel count (for metrics, not for flagging — validator handles that)
         object_pixels = int(np.count_nonzero(filtered_mask))
-        mask_ratio = object_pixels / max(1, h * w)
-        if mask_ratio < gc.min_object_ratio:
-            flags.append(Flag.MASK_TOO_SMALL)
-
-        # Bbox-ratio checks
-        bbox_ratio = bbox.area / max(1, h * w)
-        if bbox_ratio > gc.max_bbox_ratio:
-            flags.append(Flag.BBOX_TOO_LARGE)
-        if bbox_ratio < gc.min_bbox_ratio:
-            flags.append(Flag.BBOX_TOO_SMALL)
 
         # 6. Expand bbox with category-aware margins
         expanded = self._expand_bbox(bbox, w, h, cat_config)
@@ -156,14 +146,16 @@ class ClassicalCropStrategy(CropStrategy):
             fill_ratio=fill,
             crop_area_ratio=expanded.area / max(1, h * w),
             margin_px=int(cat_config.margin_pct * max(w, h)),
-            bbox=expanded,
+            object_bbox=bbox,
+            crop_bbox=expanded,
             object_pixel_count=object_pixels,
             component_count=sig_count,
         )
 
         return CropResult(
             mask=filtered_mask,
-            bbox=expanded,
+            object_bbox=bbox,
+            crop_bbox=expanded,
             cropped_image=cropped,
             final_image=final,
             metrics=metrics,

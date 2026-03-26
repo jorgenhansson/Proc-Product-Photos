@@ -35,7 +35,7 @@ class TestValidation:
         mask[100, 100] = 255  # single pixel
         result = CropResult(
             mask=mask,
-            bbox=BBox(100, 100, 1, 1),
+            object_bbox=BBox(100, 100, 1, 1),
             metrics=CropMetrics(fill_ratio=0.5),
         )
         flags = validate_crop_result(result, (200, 200), context, config)
@@ -45,7 +45,7 @@ class TestValidation:
         mask = np.full((200, 200), 255, dtype=np.uint8)
         result = CropResult(
             mask=mask,
-            bbox=BBox(0, 0, 200, 200),
+            object_bbox=BBox(0, 0, 200, 200),
             metrics=CropMetrics(fill_ratio=0.5),
         )
         flags = validate_crop_result(result, (200, 200), context, config)
@@ -56,7 +56,7 @@ class TestValidation:
         mask[100, 100] = 255
         result = CropResult(
             mask=mask,
-            bbox=BBox(100, 100, 1, 1),
+            object_bbox=BBox(100, 100, 1, 1),
             metrics=CropMetrics(fill_ratio=0.5),
         )
         flags = validate_crop_result(result, (200, 200), context, config)
@@ -97,7 +97,7 @@ class TestValidation:
         mask[40:160, 40:160] = 255
         result = CropResult(
             mask=mask,
-            bbox=BBox(40, 40, 120, 120),
+            object_bbox=BBox(40, 40, 120, 120),
             final_image=canvas,
             metrics=CropMetrics(fill_ratio=0.55),
         )
@@ -117,7 +117,7 @@ class TestValidation:
         mask[100, 100] = 255
         result = CropResult(
             mask=mask,
-            bbox=BBox(100, 100, 1, 1),
+            object_bbox=BBox(100, 100, 1, 1),
             flags=[Flag.MASK_TOO_SMALL],  # already flagged
             metrics=CropMetrics(fill_ratio=0.5),
         )

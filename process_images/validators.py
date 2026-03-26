@@ -35,9 +35,9 @@ def validate_crop_result(
         if mask_ratio < gc.min_object_ratio:
             flags.append(Flag.MASK_TOO_SMALL)
 
-    # -- Bounding box --
-    if result.bbox is not None:
-        bbox_ratio = result.bbox.area / max(1, h * w)
+    # -- Bounding box (check object extent, not the expanded crop region) --
+    if result.object_bbox is not None:
+        bbox_ratio = result.object_bbox.area / max(1, h * w)
         if bbox_ratio > gc.max_bbox_ratio:
             flags.append(Flag.BBOX_TOO_LARGE)
         if bbox_ratio < gc.min_bbox_ratio:

@@ -123,7 +123,8 @@ class CropMetrics:
     fill_ratio: float = 0.0
     crop_area_ratio: float = 0.0
     margin_px: int = 0
-    bbox: Optional[BBox] = None
+    object_bbox: Optional[BBox] = None
+    crop_bbox: Optional[BBox] = None
     object_pixel_count: int = 0
     component_count: int = 0
 
@@ -133,7 +134,8 @@ class CropResult:
     """Result of a single crop strategy execution."""
 
     mask: Optional[np.ndarray] = None
-    bbox: Optional[BBox] = None
+    object_bbox: Optional[BBox] = None
+    crop_bbox: Optional[BBox] = None
     cropped_image: Optional[np.ndarray] = None
     final_image: Optional[np.ndarray] = None
     metrics: CropMetrics = field(default_factory=CropMetrics)

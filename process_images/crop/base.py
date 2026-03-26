@@ -34,5 +34,5 @@ class CropStrategy(ABC):
             config: Full pipeline configuration.
 
         Returns:
-            CropResult with mask, bbox, final image, metrics and flags.
+            CropResult with mask, object_bbox, crop_bbox, final image, metrics and flags.
         """
