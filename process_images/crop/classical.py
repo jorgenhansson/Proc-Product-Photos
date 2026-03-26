@@ -143,8 +143,6 @@ class ClassicalCropStrategy(CropStrategy):
         else:
             return mask_from_complex_bg(
                 image[:, :, :3],
-                cat_config.morph_kernel_size + 2,
-                cat_config.morph_iterations + 1,
                 block_size=cat_config.adaptive_block_size,
                 constant_c=cat_config.adaptive_c,
             )

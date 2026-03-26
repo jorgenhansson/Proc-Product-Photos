@@ -120,15 +120,16 @@ def _lab_distance_to_white(pixels: np.ndarray) -> np.ndarray:
 
 def mask_from_complex_bg(
     image: np.ndarray,
-    morph_kernel_size: int = 7,
-    morph_iterations: int = 3,
     block_size: int = 21,
     constant_c: float = 10.0,
 ) -> np.ndarray:
-    """Generate mask using adaptive thresholding for complex backgrounds.
+    """Generate raw mask using adaptive thresholding for complex backgrounds.
 
-    Uses adaptive Gaussian thresholding followed by heavier morphological
-    operations to handle gradients and shadows.
+    Produces a binary mask via adaptive Gaussian thresholding.
+    Morphological cleanup is NOT done here — it is handled by
+    ``clean_mask()`` in the pipeline, which applies category-aware
+    kernel size and thin-object protection consistently across all
+    background types.
 
     Args:
         block_size: Neighbourhood size for adaptive thresholding (must be odd).
@@ -139,7 +140,7 @@ def mask_from_complex_bg(
     bs = max(3, block_size)
     if bs % 2 == 0:
         bs += 1
-    binary = cv2.adaptiveThreshold(
+    return cv2.adaptiveThreshold(
         gray,
         255,
         cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
@@ -147,13 +148,3 @@ def mask_from_complex_bg(
         blockSize=bs,
         C=constant_c,
     )
-    kernel = cv2.getStructuringElement(
-        cv2.MORPH_ELLIPSE, (morph_kernel_size, morph_kernel_size)
-    )
-    binary = cv2.morphologyEx(
-        binary, cv2.MORPH_CLOSE, kernel, iterations=morph_iterations
-    )
-    binary = cv2.morphologyEx(
-        binary, cv2.MORPH_OPEN, kernel, iterations=max(1, morph_iterations - 1)
-    )
-    return binary
