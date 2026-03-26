@@ -130,13 +130,14 @@ def write_html_report(
         flag_rows += f"<tr><td>{flag_name}</td><td>{count}</td></tr>\n"
 
     cat_rows = ""
-    for cat, counts in sorted(stats_dict.get("by_category", {}).items()):
-        total = sum(counts.values())
-        ok = counts.get("ok", 0) + counts.get("recovered", 0)
-        flagged = counts.get("flagged", 0) + counts.get("failed", 0)
+    for cat, info in sorted(stats_dict.get("by_category", {}).items()):
+        total = info.get("total", 0)
+        ok = info.get("ok", 0) + info.get("recovered", 0)
+        flagged = info.get("flagged", 0) + info.get("failed", 0)
+        sr = info.get("success_rate", 0)
         cat_rows += (
             f"<tr><td>{cat}</td><td>{total}</td>"
-            f"<td>{ok}</td><td>{flagged}</td></tr>\n"
+            f"<td>{ok}</td><td>{flagged}</td><td>{sr:.0%}</td></tr>\n"
         )
 
     review_rows = ""
@@ -194,7 +195,7 @@ def write_html_report(
 
 <h2>By Category</h2>
 <table>
-<tr><th>Category</th><th>Total</th><th>OK + Recovered</th><th>Flagged + Failed</th></tr>
+<tr><th>Category</th><th>Total</th><th>OK + Recovered</th><th>Flagged + Failed</th><th>Success Rate</th></tr>
 {cat_rows}</table>
 
 <h2>By Flag</h2>
