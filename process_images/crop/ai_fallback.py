@@ -82,6 +82,18 @@ class AIFallbackCropStrategy(CropStrategy):
             # Seed GrabCut with the classical mask as probable fg/bg
             mask_gc[prior == 255] = cv2.GC_PR_FGD
             mask_gc[prior == 0] = cv2.GC_PR_BGD
+
+            # Mark the inner 50% of the object bbox as definite foreground.
+            # GrabCut needs some GC_FGD pixels to anchor its segmentation;
+            # using only probable labels gives it too much freedom.
+            prior_bbox = compute_bbox(prior)
+            if prior_bbox is not None and prior_bbox.w > 4 and prior_bbox.h > 4:
+                ix = prior_bbox.x + prior_bbox.w // 4
+                iy = prior_bbox.y + prior_bbox.h // 4
+                iw = prior_bbox.w // 2
+                ih = prior_bbox.h // 2
+                mask_gc[iy : iy + ih, ix : ix + iw] = cv2.GC_FGD
+
             init_mode = cv2.GC_INIT_WITH_MASK
             rect = None
             logger.debug(

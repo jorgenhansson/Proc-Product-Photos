@@ -111,3 +111,37 @@ class TestPriorMaskInitialization:
         result = strategy.crop(white_bg_image, context, config)
         # Should not crash, falls back to rect init
         assert isinstance(result, CropResult)
+
+    def test_gc_fgd_seeding_improves_result(self, config, white_bg_image):
+        """Prior mask with GC_FGD inner region should produce a valid crop.
+        The inner 50% of the prior bbox gets marked as definite foreground,
+        which anchors GrabCut's segmentation."""
+        prior = np.zeros((200, 200), dtype=np.uint8)
+        prior[70:130, 70:130] = 255  # large enough for inner bbox
+
+        context = ImageContext(
+            source_path=Path("test.png"),
+            category="BALL",
+            prior_mask=prior,
+        )
+        strategy = AIFallbackCropStrategy()
+        result = strategy.crop(white_bg_image, context, config)
+        assert result.final_image is not None
+        # Should have found a valid object
+        assert result.object_bbox is not None
+        assert result.metrics.fill_ratio > 0
+
+    def test_tiny_prior_no_gc_fgd_crash(self, config, white_bg_image):
+        """A very small prior mask (< 4px wide) should not crash
+        when the inner-bbox GC_FGD logic skips."""
+        prior = np.zeros((200, 200), dtype=np.uint8)
+        prior[100, 100] = 255  # single pixel — bbox 1x1
+
+        context = ImageContext(
+            source_path=Path("test.png"),
+            category="BALL",
+            prior_mask=prior,
+        )
+        strategy = AIFallbackCropStrategy()
+        result = strategy.crop(white_bg_image, context, config)
+        assert isinstance(result, CropResult)
