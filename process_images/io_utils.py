@@ -34,6 +34,13 @@ def load_image(path: Path) -> Optional[np.ndarray]:
     try:
         img = Image.open(path)
         img.load()  # Force full decode (handles lazy TIFF loading)
+        # Warn about multi-page TIFFs — only first page is processed
+        n_frames = getattr(img, "n_frames", 1)
+        if n_frames > 1:
+            logger.warning(
+                "%s has %d pages — only page 1 will be processed",
+                path.name, n_frames,
+            )
         img = ImageOps.exif_transpose(img)  # Apply EXIF orientation
         img = _normalize_mode(img)
         return np.array(img)

@@ -58,6 +58,18 @@ def finalize_crop(
     # Expand bbox with category-aware margins
     expanded = expand_bbox(object_bbox, w, h, cat_config)
 
+    # Guard against degenerate crop region (e.g. bbox fully outside image)
+    if expanded.w < 1 or expanded.h < 1:
+        flags = list(flags)
+        flags.append(Flag.NO_OBJECT_FOUND)
+        return CropResult(
+            mask=mask,
+            object_bbox=object_bbox,
+            flags=flags,
+            background_type=background_type,
+            metrics=CropMetrics(),
+        )
+
     # Crop — preserve all channels (including alpha for transparent bg)
     cropped = crop_region(image, expanded)
 

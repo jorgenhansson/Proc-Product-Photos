@@ -95,6 +95,24 @@ class TestLoadImage:
         assert loaded is not None
         assert loaded.shape == (60, 80, 3)
 
+    def test_multi_page_tiff_warns(self, tmp_path: Path, caplog):
+        """Multi-page TIFF should load first page and log a warning."""
+        import logging
+
+        path = tmp_path / "multi.tif"
+        frames = [
+            Image.fromarray(np.full((20, 20, 3), c, dtype=np.uint8))
+            for c in [100, 200]
+        ]
+        frames[0].save(path, format="TIFF", save_all=True, append_images=frames[1:])
+
+        with caplog.at_level(logging.WARNING, logger="process_images.io_utils"):
+            loaded = load_image(path)
+
+        assert loaded is not None
+        assert loaded.shape == (20, 20, 3)
+        assert "2 pages" in caplog.text
+
 
 class TestSaveJpeg:
     def test_round_trip(self, tmp_path: Path):

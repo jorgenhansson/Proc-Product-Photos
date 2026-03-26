@@ -7,10 +7,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from process_images.config import PipelineConfig, GlobalConfig
+from process_images.config import PipelineConfig, GlobalConfig, CategoryConfig
 from process_images.crop.classical import ClassicalCropStrategy
+from process_images.crop.finalize import finalize_crop
 from process_images.crop.morphology import clean_mask, merge_collinear_components
-from process_images.models import Flag, ImageContext
+from process_images.models import BBox, BackgroundType, Flag, ImageContext
 
 
 @pytest.fixture
@@ -223,3 +224,30 @@ class TestThinObjectProtection:
         assert result.crop_bbox.w >= 90, (
             f"Crop width {result.crop_bbox.w} too narrow for thin object"
         )
+
+
+class TestFinalizeCropGuards:
+    """Tests for edge case guards in finalize_crop."""
+
+    def test_degenerate_bbox_returns_no_object(self):
+        """A bbox that clamps to zero dimensions should return NO_OBJECT_FOUND."""
+        image = np.full((100, 100, 3), 255, dtype=np.uint8)
+        mask = np.zeros((100, 100), dtype=np.uint8)
+        # Bbox entirely outside image — will clamp to w=0 or h=0
+        bbox = BBox(x=200, y=200, w=50, h=50)
+        gc = GlobalConfig(canvas_size=100)
+        cat = CategoryConfig(margin_pct=0.0)
+
+        result = finalize_crop(
+            image=image,
+            mask=mask,
+            object_bbox=bbox,
+            background_type=BackgroundType.WHITE_BG,
+            flags=[],
+            cat_config=cat,
+            global_config=gc,
+            object_pixel_count=0,
+            component_count=0,
+        )
+        assert Flag.NO_OBJECT_FOUND in result.flags
+        assert result.final_image is None

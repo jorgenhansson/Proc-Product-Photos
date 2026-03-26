@@ -39,7 +39,7 @@ def resize_to_fit(
     scale = min(target_dim / max(1, w), target_dim / max(1, h))
     if scale > 1.0:
         # Don't upscale unless min_output_px forces it
-        scale = min(1.0, (canvas_size - 4) / max(1, max(w, h)))
+        scale = min(1.0, canvas_size / max(1, max(w, h)))
 
     new_w = max(1, int(w * scale))
     new_h = max(1, int(h * scale))
@@ -48,7 +48,7 @@ def resize_to_fit(
     if min_output_px > 0 and max(new_w, new_h) < min_output_px:
         upscale = min_output_px / max(1, max(w, h))
         # Cap at canvas size
-        upscale = min(upscale, (canvas_size - 4) / max(1, max(w, h)))
+        upscale = min(upscale, canvas_size / max(1, max(w, h)))
         new_w = max(1, int(w * upscale))
         new_h = max(1, int(h * upscale))
 
