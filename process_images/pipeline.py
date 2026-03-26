@@ -45,6 +45,7 @@ class Pipeline:
         self.primary = primary
         self.fallback = fallback
         self.stats = StatsAccumulator()
+        self._seen_outputs: set[str] = set()
 
     def run(
         self,
@@ -113,12 +114,15 @@ class Pipeline:
         result.category = category
         result.proposed_filenames = [row.output_filename for row in rows]
 
-        # -- Filename conflict check --
+        # -- Filename conflict check (pre-existing files + same-batch) --
         for row in rows:
-            out_path = output_dir / row.output_filename
-            if out_path.exists():
+            fname = row.output_filename
+            if fname in self._seen_outputs:
                 result.flags.append(Flag.NAMING_CONFLICT)
-                logger.warning("Output conflict: %s", out_path)
+                logger.warning("Same-batch output conflict: %s", fname)
+            elif (output_dir / fname).exists():
+                result.flags.append(Flag.NAMING_CONFLICT)
+                logger.warning("Pre-existing output conflict: %s", fname)
 
         # -- Source metadata --
         try:
@@ -154,10 +158,15 @@ class Pipeline:
         validation_flags = validate_crop_result(
             crop_result, image.shape, context, self.config
         )
-        all_flags = list(dict.fromkeys(crop_result.flags + validation_flags))
+        # Merge: early flags (NAMING_CONFLICT) + crop flags + validation flags
+        all_flags = list(dict.fromkeys(
+            result.flags + crop_result.flags + validation_flags
+        ))
         result.crop_metrics = crop_result.metrics
 
-        primary_ok = len(all_flags) == 0 and crop_result.final_image is not None
+        # NAMING_CONFLICT is informational — don't block processing
+        blocking_flags = [f for f in all_flags if f != Flag.NAMING_CONFLICT]
+        primary_ok = len(blocking_flags) == 0 and crop_result.final_image is not None
 
         if primary_ok:
             # Success — save outputs
@@ -211,11 +220,23 @@ class Pipeline:
     def _save_outputs(
         self, final_image, rows, output_dir, result
     ) -> None:
-        """Save the final image for each mapping row."""
+        """Save the final image for each mapping row.
+
+        Skips writing if the output filename was already written in this
+        batch (prevents silent overwrite on same-batch collisions).
+        """
         quality = self.config.global_config.jpeg_quality
         for row in rows:
-            out_path = output_dir / row.output_filename
+            fname = row.output_filename
+            if fname in self._seen_outputs:
+                logger.warning(
+                    "Skipping write — already written in this batch: %s",
+                    fname,
+                )
+                continue
+            out_path = output_dir / fname
             save_jpeg(final_image, out_path, quality)
+            self._seen_outputs.add(fname)
             result.output_paths.append(out_path)
 
     def _save_review(

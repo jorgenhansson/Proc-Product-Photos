@@ -224,3 +224,58 @@ class TestPipelineEndToEnd:
         stats = pipeline.run(input_dir, output_dir, review_dir)
 
         assert stats.results[0].fallback_attempted is False
+
+    def test_same_batch_collision_no_overwrite(self, setup_dirs):
+        """Two different input images mapping to the same output filename
+        should not overwrite each other. Second write is skipped."""
+        input_dir, output_dir, review_dir = setup_dirs
+
+        # Two different images, same output filename
+        img1 = np.full((200, 200, 3), 255, dtype=np.uint8)
+        img1[60:140, 60:140] = [40, 40, 40]
+        img2 = np.full((200, 200, 3), 255, dtype=np.uint8)
+        img2[80:120, 80:120] = [200, 50, 50]
+
+        _save_test_image(input_dir / "SKU_A.png", img1)
+        _save_test_image(input_dir / "SKU_B.png", img2)
+
+        # Both map to the same output file
+        mapping = _make_mapping(
+            ("SKU_A", "SAME_ART", "front", "BALL"),
+            ("SKU_B", "SAME_ART", "front", "BALL"),
+        )
+        config = PipelineConfig(global_config=GlobalConfig(canvas_size=200))
+
+        pipeline = Pipeline(config, mapping, ClassicalCropStrategy())
+        stats = pipeline.run(input_dir, output_dir, review_dir)
+
+        # Second image should have NAMING_CONFLICT flag
+        conflicts = [
+            r for r in stats.results if Flag.NAMING_CONFLICT in r.flags
+        ]
+        assert len(conflicts) >= 1
+
+        # Output file should exist (written by first image)
+        assert (output_dir / "SAME_ART_front.jpg").exists()
+
+    def test_pre_existing_file_flagged_but_overwritten(self, setup_dirs):
+        """Pre-existing output file is flagged but overwritten (re-run scenario)."""
+        input_dir, output_dir, review_dir = setup_dirs
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Pre-create the output file
+        pre_existing = output_dir / "ART100_front.jpg"
+        pre_existing.write_text("old content")
+        old_size = pre_existing.stat().st_size
+
+        _save_test_image(input_dir / "SKU001.png", _make_white_bg_image())
+        mapping = _make_mapping(("SKU001", "ART100", "front", "BALL"))
+        config = PipelineConfig(global_config=GlobalConfig(canvas_size=200))
+
+        pipeline = Pipeline(config, mapping, ClassicalCropStrategy())
+        stats = pipeline.run(input_dir, output_dir, review_dir)
+
+        r = stats.results[0]
+        assert Flag.NAMING_CONFLICT in r.flags
+        # File should be overwritten (re-run is valid)
+        assert pre_existing.stat().st_size != old_size
