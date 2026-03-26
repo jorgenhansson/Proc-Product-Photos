@@ -5,7 +5,7 @@ heuristic.  This is explicitly *not* presented as a real AI solution --
 it is a practical refinement step.
 
 EXTENSION POINT: to plug in a real segmentation model or API, either:
-  1. Subclass AIFallbackCropStrategy and override ``_segment()``, or
+  1. Subclass AIFallbackCropStrategy and override ``_grabcut_crop()``, or
   2. Pass an ``external_provider`` CropStrategy to ``__init__`` which
      will be used instead of GrabCut.
 """
@@ -22,14 +22,13 @@ from ..config import PipelineConfig
 from ..models import (
     BackgroundType,
     BBox,
-    CropMetrics,
     CropResult,
     Flag,
     ImageContext,
 )
 from .base import CropStrategy
-from .canvas import compute_fill_ratio, crop_region, place_on_canvas, resize_to_fit
 from .categories import resolve_category
+from .finalize import finalize_crop
 from .morphology import compute_bbox, find_main_component
 
 logger = logging.getLogger(__name__)
@@ -133,56 +132,19 @@ class AIFallbackCropStrategy(CropStrategy):
                 background_type=BackgroundType.COMPLEX_BG,
             )
 
-        # Expand bbox with category margin (image-relative, not object-relative)
-        img_max = max(w, h)
-        mx = int(img_max * cat_config.margin_pct)
-        my = mx
-        expanded = BBox(
-            x=bbox.x - mx,
-            y=bbox.y - my,
-            w=bbox.w + 2 * mx,
-            h=bbox.h + 2 * my,
-        ).clamp(w, h)
-
-        # Crop, resize, place on canvas
-        cropped = crop_region(rgb, expanded)
-        target_fill = (
-            cat_config.target_fill_ratio_min + cat_config.target_fill_ratio_max
-        ) / 2
-        resized = resize_to_fit(
-            cropped, gc.canvas_size, target_fill, cat_config.min_output_px
-        )
-        final = place_on_canvas(
-            resized,
-            gc.canvas_size,
-            gc.background_color,
-            cat_config.centering_bias_x,
-            cat_config.centering_bias_y,
-        )
-
-        fill = compute_fill_ratio(
-            (resized.shape[1], resized.shape[0]), gc.canvas_size
-        )
-
-        metrics = CropMetrics(
-            fill_ratio=fill,
-            crop_area_ratio=expanded.area / max(1, h * w),
-            margin_px=max(mx, my),
-            object_bbox=bbox,
-            crop_bbox=expanded,
-            object_pixel_count=int(np.count_nonzero(filtered)),
-            component_count=sig_count,
-        )
-
+        # Shared finalization: expand bbox, crop, resize, canvas, metrics.
+        # Uses the same category-aware margins and thin-object protection
+        # as the classical strategy.
         bg_type = context.background_type or BackgroundType.COMPLEX_BG
 
-        return CropResult(
+        return finalize_crop(
+            image=image,
             mask=filtered,
             object_bbox=bbox,
-            crop_bbox=expanded,
-            cropped_image=cropped,
-            final_image=final,
-            metrics=metrics,
-            flags=flags,
             background_type=bg_type,
+            flags=flags,
+            cat_config=cat_config,
+            global_config=gc,
+            object_pixel_count=int(np.count_nonzero(filtered)),
+            component_count=sig_count,
         )
