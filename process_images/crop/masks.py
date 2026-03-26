@@ -19,10 +19,13 @@ def detect_background_type(
     2. If border pixels are predominantly white -> WHITE_BG
     3. Otherwise -> COMPLEX_BG
     """
-    # Check for alpha channel
+    # Check for alpha channel — require meaningful variation, not just
+    # a single low pixel (guards against near-255 alpha from lossy workflows)
     if image.ndim == 3 and image.shape[2] == 4:
         alpha = image[:, :, 3]
-        if alpha.min() < 250:
+        alpha_range = int(alpha.max()) - int(alpha.min())
+        transparent_fraction = float(np.mean(alpha < 128))
+        if alpha_range > 100 and transparent_fraction > 0.01:
             return BackgroundType.TRANSPARENT
 
     # Check border whiteness

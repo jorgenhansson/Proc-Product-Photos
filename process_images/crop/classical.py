@@ -109,8 +109,8 @@ class ClassicalCropStrategy(CropStrategy):
         # 6. Expand bbox with category-aware margins
         expanded = self._expand_bbox(bbox, w, h, cat_config)
 
-        # 7. Crop
-        cropped = crop_region(image[:, :, :3], expanded)
+        # 7. Crop — preserve all channels (including alpha for transparent bg)
+        cropped = crop_region(image, expanded)
 
         # 8. Resize
         target_fill = (

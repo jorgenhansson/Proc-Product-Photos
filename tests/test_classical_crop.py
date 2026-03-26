@@ -85,3 +85,47 @@ class TestClassicalCrop:
         result = strategy.crop(white_bg_image, ctx, config_200)
         # BALL margin_pct = 0.12, image is 200x200 → margin = 200 * 0.12 = 24
         assert result.metrics.margin_px == 24
+
+    def test_transparent_crop_no_black_halo(self, strategy, config_200):
+        """Transparent-bg image with anti-aliased edges must not produce
+        black artifacts on the white canvas.
+        """
+        # Create RGBA image: red circle with smooth alpha edges on transparent bg
+        img = np.zeros((200, 200, 4), dtype=np.uint8)
+        y, x = np.ogrid[:200, :200]
+        dist = np.sqrt((x - 100.0) ** 2 + (y - 100.0) ** 2)
+        # Smooth alpha falloff at edge (anti-aliased)
+        alpha = np.clip(255 - (dist - 35) * 10, 0, 255).astype(np.uint8)
+        img[:, :, 0] = 200  # red channel
+        img[:, :, 3] = alpha
+
+        ctx = ImageContext(source_path=Path("test.png"), category="BALL")
+        result = strategy.crop(img, ctx, config_200)
+        assert result.final_image is not None
+        assert result.final_image.shape == (200, 200, 3)
+
+        # Check corners are white (not black from unmasked transparent pixels)
+        for cy, cx in [(0, 0), (0, 199), (199, 0), (199, 199)]:
+            pixel = result.final_image[cy, cx]
+            assert int(pixel[0]) > 200, f"Corner ({cy},{cx}) is dark: {pixel}"
+            assert int(pixel[1]) > 200, f"Corner ({cy},{cx}) is dark: {pixel}"
+            assert int(pixel[2]) > 200, f"Corner ({cy},{cx}) is dark: {pixel}"
+
+    def test_transparent_crop_preserves_alpha_compositing(self, strategy, config_200):
+        """Alpha compositing should blend semi-transparent pixels with white,
+        not render them as their raw RGB values.
+        """
+        img = np.zeros((200, 200, 4), dtype=np.uint8)
+        # Semi-transparent green square (alpha above mask threshold of 128)
+        img[70:130, 70:130, 1] = 200  # green
+        img[70:130, 70:130, 3] = 180  # 70% alpha — above threshold
+
+        ctx = ImageContext(source_path=Path("test.png"), category="BALL")
+        result = strategy.crop(img, ctx, config_200)
+        assert result.final_image is not None
+
+        # Center should be a blend of green and white, not pure green
+        # and definitely not black
+        center = result.final_image[100, 100]
+        assert int(center[1]) > 50, "Green channel should be present"
+        assert int(center[0]) > 50, "Red channel should show white bleed-through"

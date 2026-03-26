@@ -37,6 +37,34 @@ class TestBackgroundDetection:
         result = detect_background_type(img, config)
         assert result == BackgroundType.WHITE_BG
 
+    def test_near_full_alpha_not_transparent(self):
+        """RGBA image with alpha all at 254 should NOT be classified as transparent.
+        Guards against lossy TIFF exports with near-full alpha.
+        """
+        img = np.full((100, 100, 4), 255, dtype=np.uint8)
+        img[:, :, 3] = 254  # near-full alpha, no real transparency
+        config = GlobalConfig()
+        result = detect_background_type(img, config)
+        assert result != BackgroundType.TRANSPARENT
+
+    def test_single_low_alpha_pixel_not_transparent(self):
+        """One corrupted pixel with alpha=0 should not trigger TRANSPARENT
+        if the rest of the image is fully opaque.
+        """
+        img = np.full((100, 100, 4), 255, dtype=np.uint8)
+        img[50, 50, 3] = 0  # single pixel — transparent_fraction < 0.01
+        config = GlobalConfig()
+        result = detect_background_type(img, config)
+        assert result != BackgroundType.TRANSPARENT
+
+    def test_genuine_alpha_variation_detected(self):
+        """Image with real transparent background (large transparent area) is detected."""
+        img = np.full((100, 100, 4), 255, dtype=np.uint8)
+        img[:50, :, 3] = 0  # top half fully transparent
+        config = GlobalConfig()
+        result = detect_background_type(img, config)
+        assert result == BackgroundType.TRANSPARENT
+
 
 class TestAlphaMask:
     def test_produces_binary_mask(self, transparent_bg_image):
