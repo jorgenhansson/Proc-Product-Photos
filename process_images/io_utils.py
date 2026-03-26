@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +34,7 @@ def load_image(path: Path) -> Optional[np.ndarray]:
     try:
         img = Image.open(path)
         img.load()  # Force full decode (handles lazy TIFF loading)
+        img = ImageOps.exif_transpose(img)  # Apply EXIF orientation
         img = _normalize_mode(img)
         return np.array(img)
     except Exception as e:
