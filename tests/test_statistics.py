@@ -23,6 +23,7 @@ def _make_result(
     flags: list[Flag] | None = None,
     fill_ratio: float = 0.5,
     time_s: float = 0.1,
+    crop_time: float = 0.05,
     bg_type: BackgroundType = BackgroundType.WHITE_BG,
     fallback: bool = False,
 ) -> ProcessingResult:
@@ -34,6 +35,7 @@ def _make_result(
         crop_metrics=CropMetrics(fill_ratio=fill_ratio, crop_area_ratio=0.6),
         background_type=bg_type,
         processing_time_s=time_s,
+        crop_time_s=crop_time,
         fallback_attempted=fallback,
         fallback_time_s=0.05 if fallback else 0.0,
     )
@@ -149,3 +151,60 @@ class TestStatsAccumulator:
         d = acc.to_dict()
         assert d["mapping"]["missing_mapping_count"] == 1
         assert d["mapping"]["naming_conflict_count"] == 1
+
+    def test_per_category_success_rate(self):
+        acc = StatsAccumulator()
+        acc.record(_make_result(category="CLUB_LONG", status=ProcessingStatus.OK))
+        acc.record(_make_result(category="CLUB_LONG", status=ProcessingStatus.OK))
+        acc.record(_make_result(category="CLUB_LONG", status=ProcessingStatus.RECOVERED))
+        acc.record(_make_result(category="CLUB_LONG", status=ProcessingStatus.FLAGGED))
+        acc.record(_make_result(category="CLUB_LONG", status=ProcessingStatus.FAILED))
+        d = acc.to_dict()
+        cat = d["by_category"]["CLUB_LONG"]
+        assert cat["total"] == 5
+        assert cat["ok"] == 2
+        assert cat["recovered"] == 1
+        assert cat["success_rate"] == 0.6  # (2+1)/5
+        assert cat["fallback_recovery_rate"] > 0
+
+    def test_fill_ratio_percentiles(self):
+        acc = StatsAccumulator()
+        # 10 values: 0.1, 0.2, ..., 1.0
+        for i in range(1, 11):
+            acc.record(_make_result(fill_ratio=i / 10))
+        d = acc.to_dict()
+        q = d["quality"]
+        assert q["fill_ratio_p10"] > 0
+        assert q["fill_ratio_p50"] > 0
+        assert q["fill_ratio_p90"] > 0
+        # p10 < p50 < p90
+        assert q["fill_ratio_p10"] < q["fill_ratio_p50"] < q["fill_ratio_p90"]
+
+    def test_timing_percentiles(self):
+        acc = StatsAccumulator()
+        for t in [0.05, 0.06, 0.07, 0.08, 0.09, 0.10, 0.11, 0.12, 0.5, 5.0]:
+            acc.record(_make_result(time_s=t, crop_time=t * 0.8))
+        d = acc.to_dict()
+        p = d["performance"]
+        assert p["per_image_p95_s"] > p["avg_per_image_s"]
+        assert p["primary_crop_avg_s"] > 0
+        assert p["primary_crop_p95_s"] > 0
+
+    def test_crop_time_tracked(self):
+        acc = StatsAccumulator()
+        acc.record(_make_result(time_s=1.0, crop_time=0.3))
+        acc.record(_make_result(time_s=2.0, crop_time=0.7))
+        d = acc.to_dict()
+        assert abs(d["performance"]["primary_crop_avg_s"] - 0.5) < 0.01
+
+    def test_console_shows_success_rate(self):
+        acc = StatsAccumulator()
+        acc.total_discovered = 2
+        acc.record(_make_result(category="BALL"))
+        acc.record(
+            _make_result(category="BALL", status=ProcessingStatus.FLAGGED)
+        )
+        text = acc.to_console()
+        assert "success_rate=" in text
+        assert "p50=" in text or "p10=" in text
+        assert "Primary crop:" in text

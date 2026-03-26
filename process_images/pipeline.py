@@ -134,8 +134,10 @@ class Pipeline:
             category=category,
         )
 
-        # -- Primary crop --
+        # -- Primary crop (timed separately for stats) --
+        t_crop = time.perf_counter()
         crop_result = self.primary.crop(image, context, self.config)
+        result.crop_time_s = time.perf_counter() - t_crop
         result.background_type = crop_result.background_type
         context.background_type = crop_result.background_type
 

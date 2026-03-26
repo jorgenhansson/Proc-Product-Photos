@@ -165,6 +165,7 @@ class ProcessingResult:
     crop_metrics: Optional[CropMetrics] = None
     background_type: Optional[BackgroundType] = None
     processing_time_s: float = 0.0
+    crop_time_s: float = 0.0
     fallback_attempted: bool = False
     fallback_time_s: float = 0.0
     error_message: str = ""
