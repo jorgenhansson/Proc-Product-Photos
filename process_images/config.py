@@ -64,6 +64,7 @@ class FallbackConfig:
     strategy: str = "grabcut"
     grabcut_iterations: int = 5
     max_attempts: int = 1
+    validation_tolerance: float = 0.8
 
 
 @dataclass

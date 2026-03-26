@@ -175,7 +175,8 @@ class Pipeline:
             result.fallback_time_s = time.perf_counter() - t_fb
 
             fb_validation = validate_crop_result(
-                fb_result, image.shape, context, self.config
+                fb_result, image.shape, context, self.config,
+                tolerance=self.config.fallback.validation_tolerance,
             )
             fb_all_flags = list(
                 dict.fromkeys(fb_result.flags + fb_validation)

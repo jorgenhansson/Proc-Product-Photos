@@ -48,6 +48,7 @@ fallback:
   strategy: grabcut              # "grabcut" (built-in) or future external name
   grabcut_iterations: 5
   max_attempts: 1
+  validation_tolerance: 0.8      # Relax thresholds for fallback (1.0 = strict, 0.8 = 20% wider)
 
 # ---------------------------------------------------------------------------
 # Category-specific crop rules
