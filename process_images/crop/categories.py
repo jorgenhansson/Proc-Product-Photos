@@ -12,7 +12,7 @@ CATEGORY_DEFAULTS: dict[str, CategoryConfig] = {
     "CLUB_LONG": CategoryConfig(
         name="CLUB_LONG",
         margin_pct=0.08,
-        threshold_bias=-5.0,
+        threshold_bias=-2.0,
         morph_kernel_size=3,
         morph_iterations=2,
         min_component_size=300,

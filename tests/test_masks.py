@@ -101,12 +101,46 @@ class TestWhiteBgMask:
         assert mask[100, 100] == 255
 
     def test_bias_affects_threshold(self, white_bg_image):
-        mask_normal = mask_from_white_bg(white_bg_image, distance_threshold=30)
+        mask_normal = mask_from_white_bg(white_bg_image, distance_threshold=12)
         mask_strict = mask_from_white_bg(
-            white_bg_image, distance_threshold=30, bias=-20
+            white_bg_image, distance_threshold=12, bias=-8
         )
         # Stricter threshold → fewer foreground pixels
         assert np.count_nonzero(mask_strict) <= np.count_nonzero(mask_normal)
+
+    def test_lab_separates_pink_from_gray(self):
+        """LAB distance should distinguish a pink product pixel from a
+        gray shadow pixel, even though both have similar RGB distance
+        to white (~42).
+        """
+        img = np.full((100, 100, 3), 255, dtype=np.uint8)
+        # Pink product area
+        img[40:60, 40:60] = [255, 225, 225]
+        # Gray shadow area (same RGB distance to white as pink)
+        img[40:60, 70:90] = [235, 235, 235]
+
+        # At threshold ~10: gray (LAB dist ~9) should be background,
+        # pink (LAB dist ~15) should be foreground
+        mask = mask_from_white_bg(img, distance_threshold=10.0)
+
+        # Pink area should be detected as foreground
+        assert mask[50, 50] == 255, "Pink product should be foreground"
+        # Gray area should be background (below threshold)
+        assert mask[50, 80] == 0, "Gray shadow should be background"
+
+    def test_lab_detects_colored_product_on_white(self):
+        """A colored product on white background should be cleanly separated."""
+        img = np.full((100, 100, 3), 255, dtype=np.uint8)
+        # Red product
+        img[30:70, 30:70] = [200, 50, 50]
+
+        mask = mask_from_white_bg(img, distance_threshold=12.0)
+        # Product should be fully detected
+        product_pixels = np.count_nonzero(mask[30:70, 30:70])
+        total_product = 40 * 40
+        assert product_pixels > total_product * 0.95, "Red product should be fully detected"
+        # Background should be clean
+        assert mask[5, 5] == 0, "White corner should be background"
 
 
 class TestComplexBgMask:

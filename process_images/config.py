@@ -38,7 +38,7 @@ class GlobalConfig:
     canvas_size: int = 1000
     jpeg_quality: int = 95
     background_color: tuple[int, int, int] = (255, 255, 255)
-    white_distance_threshold: float = 30.0
+    white_distance_threshold: float = 12.0
     edge_whiteness_threshold: float = 0.85
     alpha_threshold: int = 128
     min_object_ratio: float = 0.005

@@ -14,8 +14,9 @@ global:
   jpeg_quality: 95                # JPEG compression quality (1-100)
   background_color: [255, 255, 255]  # Canvas background RGB
 
-  # Background detection
-  white_distance_threshold: 30.0  # Euclidean RGB distance to consider "white"
+  # Background detection (LAB-space weighted distance)
+  # L weighted 0.5, a/b weighted 1.0 — tolerates shadows, separates chrominance
+  white_distance_threshold: 12.0  # Weighted LAB distance to consider "white"
   edge_whiteness_threshold: 0.85  # Fraction of border pixels that must be white
   alpha_threshold: 128            # Alpha value above which pixel is foreground
 
@@ -57,7 +58,7 @@ fallback:
 categories:
   CLUB_LONG:
     margin_pct: 0.08
-    threshold_bias: -5.0          # Lower threshold to catch thin shafts
+    threshold_bias: -2.0          # Lower threshold to catch thin shafts (LAB scale)
     morph_kernel_size: 3          # Smaller kernel preserves thin features
     morph_iterations: 2
     min_component_size: 300

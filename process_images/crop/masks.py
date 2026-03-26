@@ -28,19 +28,28 @@ def detect_background_type(
         if alpha_range > 100 and transparent_fraction > 0.01:
             return BackgroundType.TRANSPARENT
 
-    # Check border whiteness
-    rgb = image[:, :, :3].astype(np.float32)
-    h, w = rgb.shape[:2]
+    # Check border whiteness using LAB-space distance
+    # LAB separates lightness from chrominance, giving better
+    # discrimination between white background and colored products
+    h, w = image.shape[:2]
     border_size = max(5, min(h, w) // 20)
 
-    top = rgb[:border_size, :].reshape(-1, 3)
-    bottom = rgb[-border_size:, :].reshape(-1, 3)
-    left = rgb[:, :border_size].reshape(-1, 3)
-    right = rgb[:, -border_size:].reshape(-1, 3)
+    rgb_img = image[:, :, :3]
+    top = rgb_img[:border_size, :]
+    bottom = rgb_img[-border_size:, :]
+    left = rgb_img[:, :border_size]
+    right = rgb_img[:, -border_size:]
 
-    border_pixels = np.concatenate([top, bottom, left, right], axis=0)
-    white = np.array([255.0, 255.0, 255.0])
-    distances = np.sqrt(np.sum((border_pixels - white) ** 2, axis=1))
+    border_rgb = np.concatenate(
+        [
+            top.reshape(-1, 3),
+            bottom.reshape(-1, 3),
+            left.reshape(-1, 3),
+            right.reshape(-1, 3),
+        ],
+        axis=0,
+    )
+    distances = _lab_distance_to_white(border_rgb)
     white_ratio = float(np.mean(distances < config.white_distance_threshold))
 
     if white_ratio >= config.edge_whiteness_threshold:
@@ -64,19 +73,49 @@ def mask_from_alpha(
 
 def mask_from_white_bg(
     image: np.ndarray,
-    distance_threshold: float = 30.0,
+    distance_threshold: float = 12.0,
     bias: float = 0.0,
 ) -> np.ndarray:
-    """Generate mask by thresholding Euclidean distance to pure white.
+    """Generate mask by weighted LAB-space distance to white.
+
+    Uses CIELAB color space with L channel weighted at 0.5 to tolerate
+    brightness variation (shadows) while strongly separating chrominance
+    (colored products) from white backgrounds.
 
     Pixels farther from white than (distance_threshold + bias) are
     considered foreground.
     """
-    rgb = image[:, :, :3].astype(np.float32)
-    white = np.array([255.0, 255.0, 255.0])
-    dist = np.sqrt(np.sum((rgb - white) ** 2, axis=2))
+    rgb = image[:, :, :3]
+    dist = _lab_distance_to_white(rgb)
     effective_threshold = max(1.0, distance_threshold + bias)
     return (dist > effective_threshold).astype(np.uint8) * 255
+
+
+def _lab_distance_to_white(pixels: np.ndarray) -> np.ndarray:
+    """Compute weighted LAB distance from pixels to pure white.
+
+    Args:
+        pixels: RGB array of shape (..., 3), dtype uint8.
+
+    Returns:
+        Distance array of same spatial shape, dtype float32.
+        L is weighted at 0.5, a and b at 1.0.
+    """
+    original_shape = pixels.shape[:-1]
+
+    # Reshape for cvtColor which needs (N, 1, 3)
+    flat = pixels.reshape(-1, 1, 3).astype(np.uint8)
+    lab = cv2.cvtColor(flat, cv2.COLOR_RGB2LAB).astype(np.float32)
+    lab = lab.reshape(-1, 3)
+
+    # OpenCV LAB: L=[0,255], a=[0,255], b=[0,255]; white = (255, 128, 128)
+    white_lab = np.array([255.0, 128.0, 128.0])
+    weights = np.array([0.5, 1.0, 1.0])
+
+    diff = (lab - white_lab) * weights
+    dist = np.sqrt(np.sum(diff ** 2, axis=1))
+
+    return dist.reshape(original_shape)
 
 
 def mask_from_complex_bg(
