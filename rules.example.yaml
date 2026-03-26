@@ -1,0 +1,110 @@
+# =============================================================================
+# rules.example.yaml — Configuration for Proc-Product-Photos pipeline
+#
+# Copy to rules.yaml and adjust values as needed.
+# All thresholds are tunable without code changes.
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Global defaults (apply unless overridden per category)
+# ---------------------------------------------------------------------------
+global:
+  # Final output canvas
+  canvas_size: 1000               # Square canvas side length in pixels
+  jpeg_quality: 95                # JPEG compression quality (1-100)
+  background_color: [255, 255, 255]  # Canvas background RGB
+
+  # Background detection
+  white_distance_threshold: 30.0  # Euclidean RGB distance to consider "white"
+  edge_whiteness_threshold: 0.85  # Fraction of border pixels that must be white
+  alpha_threshold: 128            # Alpha value above which pixel is foreground
+
+  # Object detection
+  min_object_ratio: 0.005         # Minimum mask area / image area
+  max_bbox_ratio: 0.99            # Maximum bbox area / image area
+  min_bbox_ratio: 0.01            # Minimum bbox area / image area
+
+  # Morphology defaults
+  morph_kernel_size: 5            # Elliptical kernel diameter
+  morph_iterations: 2             # Close/open iteration count
+  min_component_size: 500         # Minimum connected component pixels
+
+  # Edge proximity check on final canvas
+  edge_proximity_px: 5            # Flag if object is within N px of canvas edge
+
+  # Adaptive thresholding defaults (for complex backgrounds)
+  adaptive_block_size: 21         # Neighbourhood size (must be odd, >= 3)
+  adaptive_c: 10.0                # Constant subtracted from mean
+
+  # Output naming
+  filename_pattern: "{store_article}_{suffix}.jpg"
+
+# ---------------------------------------------------------------------------
+# Fallback strategy
+# ---------------------------------------------------------------------------
+fallback:
+  enabled: true
+  strategy: grabcut              # "grabcut" (built-in) or future external name
+  grabcut_iterations: 5
+  max_attempts: 1
+
+# ---------------------------------------------------------------------------
+# Category-specific crop rules
+#
+# Each category inherits global defaults and overrides specific values.
+# target_fill_ratio: [min, max] — expected object fill on final canvas.
+# ---------------------------------------------------------------------------
+categories:
+  CLUB_LONG:
+    margin_pct: 0.08
+    threshold_bias: -5.0          # Lower threshold to catch thin shafts
+    morph_kernel_size: 3          # Smaller kernel preserves thin features
+    morph_iterations: 2
+    min_component_size: 300
+    target_fill_ratio: [0.30, 0.85]
+    centering_bias_x: 0.0
+    centering_bias_y: 0.0
+    thin_object_protection: true  # Extra margin on narrow dimension
+    shadow_tolerance: 10.0
+    fallback_sensitivity: 0.7
+
+  CLUB_HEAD_ONLY:
+    margin_pct: 0.06
+    morph_kernel_size: 5
+    min_component_size: 400
+    target_fill_ratio: [0.35, 0.85]
+
+  BALL:
+    margin_pct: 0.12
+    morph_kernel_size: 5
+    target_fill_ratio: [0.30, 0.75]
+
+  SHOE:
+    margin_pct: 0.06
+    centering_bias_y: 0.02        # Slight downward offset (sole at bottom)
+    target_fill_ratio: [0.35, 0.85]
+
+  BAG:
+    margin_pct: 0.05
+    target_fill_ratio: [0.40, 0.90]
+
+  APPAREL_FOLDED:
+    margin_pct: 0.06
+    target_fill_ratio: [0.30, 0.80]
+
+  APPAREL_WORN_OR_SHAPED:
+    margin_pct: 0.08
+    shadow_tolerance: 15.0
+    target_fill_ratio: [0.25, 0.85]
+    adaptive_block_size: 25        # Larger block for softer transitions
+    adaptive_c: 8.0                # Lower C to capture softer edges
+
+  ACCESSORY_SMALL:
+    margin_pct: 0.10
+    min_component_size: 200       # Smaller objects tolerated
+    target_fill_ratio: [0.20, 0.70]
+    fallback_sensitivity: 0.6
+
+  BOX_OR_PACKAGING:
+    margin_pct: 0.04
+    target_fill_ratio: [0.40, 0.90]

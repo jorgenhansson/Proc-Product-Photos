@@ -1,0 +1,97 @@
+"""Image I/O utilities: loading, saving, format normalization, file discovery."""
+
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+from typing import Optional
+
+import numpy as np
+from PIL import Image
+
+logger = logging.getLogger(__name__)
+
+IMAGE_EXTENSIONS = {".tif", ".tiff", ".png", ".jpg", ".jpeg"}
+
+
+def discover_images(input_dir: Path) -> list[Path]:
+    """Find all supported image files in a directory (non-recursive).
+
+    Returns paths sorted by name for deterministic ordering.
+    """
+    files: list[Path] = []
+    for item in input_dir.iterdir():
+        if item.is_file() and item.suffix.lower() in IMAGE_EXTENSIONS:
+            files.append(item)
+    return sorted(files, key=lambda p: p.name.lower())
+
+
+def load_image(path: Path) -> Optional[np.ndarray]:
+    """Load an image file and return as RGB or RGBA numpy array.
+
+    Returns None on failure (logged as error).
+    """
+    try:
+        img = Image.open(path)
+        img.load()  # Force full decode (handles lazy TIFF loading)
+        img = _normalize_mode(img)
+        return np.array(img)
+    except Exception as e:
+        logger.error("Failed to load image %s: %s", path, e)
+        return None
+
+
+def _normalize_mode(img: Image.Image) -> Image.Image:
+    """Convert any Pillow image mode to RGB or RGBA."""
+    if img.mode == "RGBA":
+        return img
+    if img.mode == "LA":
+        return img.convert("RGBA")
+    if img.mode == "PA":
+        return img.convert("RGBA")
+    if img.mode == "P":
+        if "transparency" in img.info:
+            return img.convert("RGBA")
+        return img.convert("RGB")
+    if img.mode in ("L", "1"):
+        return img.convert("RGB")
+    if img.mode == "CMYK":
+        return img.convert("RGB")
+    if img.mode in ("I", "I;16"):
+        arr = np.array(img, dtype=np.float64)
+        max_val = arr.max()
+        if max_val > 0:
+            arr = (arr / max_val * 255).astype(np.uint8)
+        else:
+            arr = arr.astype(np.uint8)
+        return Image.fromarray(arr).convert("RGB")
+    if img.mode == "RGB":
+        return img
+    # Fallback: attempt conversion
+    return img.convert("RGB")
+
+
+def has_alpha(img: np.ndarray) -> bool:
+    """Check if a numpy image array has an alpha channel."""
+    return img.ndim == 3 and img.shape[2] == 4
+
+
+def save_jpeg(
+    img: np.ndarray, path: Path, quality: int = 95
+) -> None:
+    """Save numpy array as JPEG. Creates parent directories as needed."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pil_img = Image.fromarray(img)
+    if pil_img.mode == "RGBA":
+        bg = Image.new("RGB", pil_img.size, (255, 255, 255))
+        bg.paste(pil_img, mask=pil_img.split()[3])
+        pil_img = bg
+    elif pil_img.mode != "RGB":
+        pil_img = pil_img.convert("RGB")
+    pil_img.save(path, format="JPEG", quality=quality, optimize=True)
+
+
+def save_png(img: np.ndarray, path: Path) -> None:
+    """Save numpy array as PNG (used for mask visualizations)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    Image.fromarray(img).save(path, format="PNG")

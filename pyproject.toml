@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "proc-product-photos"
+version = "0.1.0"
+description = "Batch processing pipeline for supplier product images"
+requires-python = ">=3.10"
+dependencies = [
+    "Pillow>=10.0",
+    "opencv-python-headless>=4.8",
+    "numpy>=1.24",
+    "pandas>=2.0",
+    "PyYAML>=6.0",
+    "typer>=0.9",
+    "openpyxl>=3.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+]
+
+[project.scripts]
+process-images = "process_images.cli:app"
+
+[tool.setuptools.packages.find]
+include = ["process_images*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
