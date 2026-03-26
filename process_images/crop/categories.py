@@ -19,6 +19,7 @@ CATEGORY_DEFAULTS: dict[str, CategoryConfig] = {
         target_fill_ratio_min=0.30,
         target_fill_ratio_max=0.85,
         thin_object_protection=True,
+        min_output_px=30,
         expected_aspect_ratio_min=2.0,
         expected_aspect_ratio_max=25.0,
     ),
@@ -80,6 +81,7 @@ CATEGORY_DEFAULTS: dict[str, CategoryConfig] = {
         min_component_size=200,
         target_fill_ratio_min=0.20,
         target_fill_ratio_max=0.70,
+        min_output_px=100,
     ),
     "BOX_OR_PACKAGING": CategoryConfig(
         name="BOX_OR_PACKAGING",
