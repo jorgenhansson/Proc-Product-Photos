@@ -27,7 +27,7 @@ CATEGORY_DEFAULTS: dict[str, CategoryConfig] = {
         thin_object_protection=True,
         min_output_px=30,
         edge_proximity_px=0,
-        expected_aspect_ratio_min=2.0,
+        expected_aspect_ratio_min=1.0,  # Putters with diagonal shafts have near-square bbox
         expected_aspect_ratio_max=25.0,
     ),
     "CLUB_HEAD_ONLY": CategoryConfig(

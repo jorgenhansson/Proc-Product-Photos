@@ -254,16 +254,17 @@ class TestAspectRatioValidation:
         flags = validate_crop_result(result, (200, 200), context, config)
         assert Flag.CROP_CATEGORY_INCONSISTENT not in flags
 
-    def test_club_long_square_bbox_flags(self, config):
-        """A square bbox for CLUB_LONG should flag (expected elongated)."""
+    def test_club_long_square_bbox_accepted(self, config):
+        """A square bbox for CLUB_LONG is accepted — diagonal putters
+        have near-square bbox despite being elongated objects."""
         context = ImageContext(source_path=Path("t.png"), category="CLUB_LONG")
         result = CropResult(
             mask=np.zeros((200, 200), dtype=np.uint8),
             object_bbox=BBox(50, 50, 80, 80),  # aspect 1:1
-            metrics=CropMetrics(fill_ratio=0.5),
+            metrics=CropMetrics(fill_ratio=0.92),
         )
         flags = validate_crop_result(result, (200, 200), context, config)
-        assert Flag.CROP_CATEGORY_INCONSISTENT in flags
+        assert Flag.CROP_CATEGORY_INCONSISTENT not in flags
 
     def test_orientation_independent(self, config):
         """Horizontal and vertical clubs should both pass."""
