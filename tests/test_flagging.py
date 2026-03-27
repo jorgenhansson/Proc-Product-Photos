@@ -71,35 +71,37 @@ class TestValidation:
         assert Flag.FILL_RATIO_TOO_LOW in flags
 
     def test_fill_ratio_too_high(self, config, context):
+        """In zero-margin mode, fill 0.99 is within range [0.85, 1.0].
+        Use fill > 1.0 / tolerance to trigger the flag."""
         result = CropResult(
             mask=np.zeros((200, 200), dtype=np.uint8),
-            metrics=CropMetrics(fill_ratio=0.99),
+            metrics=CropMetrics(fill_ratio=1.05),  # over max even with tolerance
         )
         flags = validate_crop_result(result, (200, 200), context, config)
         assert Flag.FILL_RATIO_TOO_HIGH in flags
 
-    def test_edge_proximity(self, config, context):
-        # Object touching the edge of final canvas
+    def test_edge_proximity_skipped_in_zero_margin(self, config, context):
+        """In zero-margin mode (edge_proximity_px=0), edge proximity is not flagged."""
         canvas = np.full((200, 200, 3), 255, dtype=np.uint8)
-        canvas[0:5, 50:150] = [0, 0, 0]  # top edge
+        canvas[0:5, 50:150] = [0, 0, 0]  # object at top edge
         result = CropResult(
             final_image=canvas,
-            metrics=CropMetrics(fill_ratio=0.5),
+            metrics=CropMetrics(fill_ratio=0.92),
         )
         flags = validate_crop_result(result, (200, 200), context, config)
-        assert Flag.OBJECT_TOO_CLOSE_TO_EDGE in flags
+        assert Flag.OBJECT_TOO_CLOSE_TO_EDGE not in flags
 
     def test_no_flags_for_good_result(self, config, context):
-        # Well-centered object, reasonable fill
+        # Well-centered object, fill within BALL zero-margin range [0.85, 1.0]
         canvas = np.full((200, 200, 3), 255, dtype=np.uint8)
-        canvas[40:160, 40:160] = [100, 100, 100]
+        canvas[10:190, 10:190] = [100, 100, 100]
         mask = np.zeros((200, 200), dtype=np.uint8)
-        mask[40:160, 40:160] = 255
+        mask[10:190, 10:190] = 255
         result = CropResult(
             mask=mask,
-            object_bbox=BBox(40, 40, 120, 120),
+            object_bbox=BBox(10, 10, 180, 180),
             final_image=canvas,
-            metrics=CropMetrics(fill_ratio=0.55),
+            metrics=CropMetrics(fill_ratio=0.92),
         )
         flags = validate_crop_result(result, (200, 200), context, config)
         assert len(flags) == 0
@@ -143,44 +145,45 @@ class TestRelaxedTolerance:
     """Tests for the tolerance parameter used in fallback validation."""
 
     def test_strict_flags_low_fill(self, config, context):
-        """Fill ratio 0.10 is below BALL min (0.20) at tolerance=1.0."""
+        """Fill ratio 0.50 is below BALL min (0.85) at tolerance=1.0."""
         result = CropResult(
             mask=np.zeros((200, 200), dtype=np.uint8),
-            metrics=CropMetrics(fill_ratio=0.10),
+            metrics=CropMetrics(fill_ratio=0.50),
         )
         flags = validate_crop_result(result, (200, 200), context, config, tolerance=1.0)
         assert Flag.FILL_RATIO_TOO_LOW in flags
 
     def test_relaxed_accepts_low_fill(self, config, context):
-        """Fill ratio 0.22 is above BALL min*0.8 (0.24) at tolerance=0.8."""
+        """Fill 0.75 is above BALL min*0.8 (0.68) at tolerance=0.8."""
         result = CropResult(
             mask=np.zeros((200, 200), dtype=np.uint8),
-            metrics=CropMetrics(fill_ratio=0.25),
+            metrics=CropMetrics(fill_ratio=0.75),
         )
         flags = validate_crop_result(result, (200, 200), context, config, tolerance=0.8)
-        # 0.30 * 0.8 = 0.24 → 0.25 is above → no flag
+        # 0.85 * 0.8 = 0.68 → 0.75 is above → no flag
         assert Flag.FILL_RATIO_TOO_LOW not in flags
 
     def test_relaxed_still_rejects_very_low_fill(self, config, context):
-        """Fill ratio 0.10 is still below even relaxed threshold."""
+        """Fill ratio 0.30 is still below even relaxed threshold (0.68)."""
         result = CropResult(
             mask=np.zeros((200, 200), dtype=np.uint8),
-            metrics=CropMetrics(fill_ratio=0.10),
+            metrics=CropMetrics(fill_ratio=0.30),
         )
         flags = validate_crop_result(result, (200, 200), context, config, tolerance=0.8)
         assert Flag.FILL_RATIO_TOO_LOW in flags
 
     def test_relaxed_widens_fill_max(self, config, context):
         """Fill ratio 0.80 exceeds BALL max (0.75) strict but passes at 0.8 tolerance."""
+        # Test that tolerance relaxes the fill_ratio_min threshold.
+        # BALL min=0.85. Fill 0.75: strict flags (0.75 < 0.85), relaxed accepts (0.75 > 0.85*0.8=0.68)
         result = CropResult(
             mask=np.zeros((200, 200), dtype=np.uint8),
-            metrics=CropMetrics(fill_ratio=0.80),
+            metrics=CropMetrics(fill_ratio=0.75),
         )
         strict = validate_crop_result(result, (200, 200), context, config, tolerance=1.0)
         relaxed = validate_crop_result(result, (200, 200), context, config, tolerance=0.8)
-        # 0.75 / 0.8 = 0.9375 → 0.80 < 0.9375 → passes
-        assert Flag.FILL_RATIO_TOO_HIGH in strict
-        assert Flag.FILL_RATIO_TOO_HIGH not in relaxed
+        assert Flag.FILL_RATIO_TOO_LOW in strict
+        assert Flag.FILL_RATIO_TOO_LOW not in relaxed
 
     def test_relaxed_bbox_threshold(self, config, context):
         """Smaller bbox passes with relaxed tolerance."""

@@ -55,7 +55,7 @@ def finalize_crop(
     h, w = image.shape[:2]
     gc = global_config
 
-    # Expand bbox with category-aware margins
+    # Expand bbox with category-aware margins (0 if zero-margin mode)
     expanded = expand_bbox(object_bbox, w, h, cat_config)
 
     # Guard against degenerate crop region (e.g. bbox fully outside image)
@@ -73,10 +73,10 @@ def finalize_crop(
     # Crop — preserve all channels (including alpha for transparent bg)
     cropped = crop_region(image, expanded)
 
-    # Resize
-    target_fill = (
-        cat_config.target_fill_ratio_min + cat_config.target_fill_ratio_max
-    ) / 2
+    # Resize — use target_fill_ratio_max so the product fills the canvas
+    # as much as possible.  In zero-margin mode (max=1.0) the longest
+    # dimension matches canvas size exactly.
+    target_fill = cat_config.target_fill_ratio_max
     resized = resize_to_fit(
         cropped, gc.canvas_size, target_fill, cat_config.min_output_px
     )

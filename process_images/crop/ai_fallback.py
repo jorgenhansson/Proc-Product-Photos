@@ -25,6 +25,7 @@ import numpy as np
 from ..config import PipelineConfig
 from ..models import (
     BackgroundType,
+    BBox,
     CropMetrics,
     CropResult,
     Flag,
@@ -210,12 +211,23 @@ class AIFallbackCropStrategy(CropStrategy):
         rgb = image[:, :, :3].copy()
         h, w = rgb.shape[:2]
 
+        # Cap GrabCut input to avoid hanging on large images.
+        # GrabCut is O(n*m*k) and becomes unusable above ~1500px.
+        max_gc_dim = 1200
+        gc_scale = 1.0
+        if max(h, w) > max_gc_dim:
+            gc_scale = max_gc_dim / max(h, w)
+            rgb = cv2.resize(rgb, None, fx=gc_scale, fy=gc_scale, interpolation=cv2.INTER_AREA)
+            h, w = rgb.shape[:2]
+
         mask_gc = np.zeros((h, w), dtype=np.uint8)
         bgd_model = np.zeros((1, 65), dtype=np.float64)
         fgd_model = np.zeros((1, 65), dtype=np.float64)
 
         # Choose initialization: prefer prior mask from classical pipeline
         prior = context.prior_mask
+        if prior is not None and gc_scale != 1.0:
+            prior = cv2.resize(prior, (w, h), interpolation=cv2.INTER_NEAREST)
         if prior is not None and prior.shape == (h, w):
             mask_gc[prior == 255] = cv2.GC_PR_FGD
             mask_gc[prior == 0] = cv2.GC_PR_BGD
@@ -253,9 +265,9 @@ class AIFallbackCropStrategy(CropStrategy):
             255, 0,
         ).astype(np.uint8)
 
-        filtered, sig_count = find_main_component(
-            fg_mask, cat_config.min_component_size
-        )
+        # Scale min_component_size for downscaled image
+        scaled_min_comp = max(1, int(cat_config.min_component_size * gc_scale * gc_scale))
+        filtered, sig_count = find_main_component(fg_mask, scaled_min_comp)
 
         bbox = compute_bbox(filtered)
         if bbox is None:
@@ -263,6 +275,20 @@ class AIFallbackCropStrategy(CropStrategy):
             return CropResult(
                 mask=filtered, flags=flags,
                 background_type=BackgroundType.COMPLEX_BG,
+            )
+
+        # Scale bbox and mask back to original image dimensions
+        if gc_scale != 1.0:
+            orig_h, orig_w = image.shape[:2]
+            inv_scale = 1.0 / gc_scale
+            bbox = BBox(
+                x=int(bbox.x * inv_scale),
+                y=int(bbox.y * inv_scale),
+                w=int(bbox.w * inv_scale),
+                h=int(bbox.h * inv_scale),
+            ).clamp(orig_w, orig_h)
+            filtered = cv2.resize(
+                filtered, (orig_w, orig_h), interpolation=cv2.INTER_NEAREST
             )
 
         bg_type = context.background_type or BackgroundType.COMPLEX_BG

@@ -81,12 +81,12 @@ class TestClassicalCrop:
         # BALL has larger margin than BOX_OR_PACKAGING
         assert r_ball.metrics.margin_px >= r_box.metrics.margin_px
 
-    def test_margin_is_image_relative(self, strategy, config_200, white_bg_image):
-        """Margin should be based on image dimensions, not object dimensions."""
+    def test_margin_is_zero_in_zero_margin_mode(self, strategy, config_200, white_bg_image):
+        """In zero-margin mode, margin_px should be 0."""
         ctx = ImageContext(source_path=Path("t.png"), category="BALL")
         result = strategy.crop(white_bg_image, ctx, config_200)
-        # BALL margin_pct = 0.12, image is 200x200 → margin = 200 * 0.12 = 24
-        assert result.metrics.margin_px == 24
+        # BALL margin_pct = 0.0 (zero-margin mode)
+        assert result.metrics.margin_px == 0
 
     def test_transparent_crop_no_black_halo(self, strategy, config_200):
         """Transparent-bg image with anti-aliased edges must not produce

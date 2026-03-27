@@ -81,8 +81,8 @@ def validate_crop_result(
         if result.metrics.fill_ratio > effective_fill_max:
             flags.append(Flag.FILL_RATIO_TOO_HIGH)
 
-    # -- Edge proximity on final canvas (tolerance increases allowed proximity) --
-    if result.final_image is not None:
+    # -- Edge proximity on final canvas (skip in zero-margin mode) --
+    if result.final_image is not None and cat_config.edge_proximity_px > 0:
         canvas_h, canvas_w = result.final_image.shape[:2]
         if result.final_image.ndim == 3:
             bg = np.array(gc.background_color, dtype=np.uint8)

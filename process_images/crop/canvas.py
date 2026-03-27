@@ -24,21 +24,27 @@ def crop_region(image: np.ndarray, bbox: BBox) -> np.ndarray:
 def resize_to_fit(
     image: np.ndarray,
     canvas_size: int,
-    fill_ratio_target: float = 0.85,
+    fill_ratio_target: float = 1.0,
     min_output_px: int = 0,
 ) -> np.ndarray:
     """Resize image proportionally so its max dimension fills the target ratio.
 
-    Normally never upscales.  If ``min_output_px`` is set and the result
-    would be smaller than that in both dimensions, controlled upscaling
-    is allowed to prevent tiny products from being invisible on the canvas.
+    With fill_ratio_target=1.0 (zero-margin mode), the object's longest
+    dimension will match the canvas size exactly.
+
+    Upscaling is allowed when fill_ratio_target >= 0.95 (zero-margin)
+    because the customer expects the product to fill the canvas.
+    For lower fill targets, upscaling is only allowed if min_output_px
+    forces it (prevents tiny products from being invisible).
     """
     h, w = image.shape[:2]
     target_dim = int(canvas_size * fill_ratio_target)
 
     scale = min(target_dim / max(1, w), target_dim / max(1, h))
-    if scale > 1.0:
-        # Don't upscale unless min_output_px forces it
+    if scale > 1.0 and fill_ratio_target < 0.80:
+        # Don't upscale unless min_output_px forces it.
+        # With fill_ratio_target >= 0.80 (zero-margin and near-zero-margin
+        # modes), upscaling is expected to fill the canvas.
         scale = min(1.0, canvas_size / max(1, max(w, h)))
 
     new_w = max(1, int(w * scale))

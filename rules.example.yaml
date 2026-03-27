@@ -1,6 +1,10 @@
 # =============================================================================
 # rules.example.yaml — Configuration for Proc-Product-Photos pipeline
 #
+# ZERO-MARGIN MODE: Customer requires no whitespace margins in output.
+# Product edges extend to canvas edges. Margins are added by the web
+# platform when images are displayed.
+#
 # Copy to rules.yaml and adjust values as needed.
 # All thresholds are tunable without code changes.
 # =============================================================================
@@ -15,7 +19,6 @@ global:
   background_color: [255, 255, 255]  # Canvas background RGB
 
   # Background detection (LAB-space weighted distance)
-  # L weighted 0.5, a/b weighted 1.0 — tolerates shadows, separates chrominance
   white_distance_threshold: 12.0  # Weighted LAB distance to consider "white"
   edge_whiteness_threshold: 0.85  # Fraction of border pixels that must be white
   alpha_threshold: 128            # Alpha value above which pixel is foreground
@@ -26,16 +29,16 @@ global:
   min_bbox_ratio: 0.01            # Minimum bbox area / image area
 
   # Morphology defaults
-  morph_kernel_size: 5            # Elliptical kernel diameter
-  morph_iterations: 2             # Close/open iteration count
-  min_component_size: 500         # Minimum connected component pixels
+  morph_kernel_size: 5
+  morph_iterations: 2
+  min_component_size: 500
 
-  # Edge proximity check on final canvas
-  edge_proximity_px: 5            # Flag if object is within N px of canvas edge
+  # Edge proximity — set to 0 for zero-margin mode
+  edge_proximity_px: 0
 
-  # Adaptive thresholding defaults (for complex backgrounds)
-  adaptive_block_size: 21         # Neighbourhood size (must be odd, >= 3)
-  adaptive_c: 10.0                # Constant subtracted from mean
+  # Adaptive thresholding (complex backgrounds)
+  adaptive_block_size: 21
+  adaptive_c: 10.0
 
   # Output naming
   filename_pattern: "{store_article}_{suffix}.jpg"
@@ -45,67 +48,74 @@ global:
 # ---------------------------------------------------------------------------
 fallback:
   enabled: true
-  strategy: grabcut              # "grabcut" (built-in) or future external name
+  strategy: grabcut
   grabcut_iterations: 5
   max_attempts: 1
-  validation_tolerance: 0.8      # Relax thresholds for fallback (1.0 = strict, 0.8 = 20% wider)
+  validation_tolerance: 0.8
 
 # ---------------------------------------------------------------------------
-# Category-specific crop rules
+# Category-specific crop rules — ZERO MARGIN
 #
-# Each category inherits global defaults and overrides specific values.
-# target_fill_ratio: [min, max] — expected object fill on final canvas.
+# margin_pct: 0 for all categories (no whitespace added)
+# target_fill_ratio: [0.85, 1.0] — product fills canvas edge-to-edge
+# edge_proximity_px: 0 — object at canvas edge is expected, not an error
 # ---------------------------------------------------------------------------
 categories:
   CLUB_LONG:
-    margin_pct: 0.08
-    threshold_bias: -2.0          # Lower threshold to catch thin shafts (LAB scale)
-    morph_kernel_size: 3          # Smaller kernel preserves thin features
+    margin_pct: 0.0
+    threshold_bias: -2.0
+    morph_kernel_size: 3
     morph_iterations: 2
     min_component_size: 300
-    target_fill_ratio: [0.30, 0.85]
-    centering_bias_x: 0.0
-    centering_bias_y: 0.0
-    thin_object_protection: true  # Extra margin on narrow dimension
-    min_output_px: 30             # Shaft visibility via crop-width, not upscaling
+    target_fill_ratio: [0.85, 1.0]
+    thin_object_protection: true
+    min_output_px: 30
+    edge_proximity_px: 0
 
   CLUB_HEAD_ONLY:
-    margin_pct: 0.06
+    margin_pct: 0.0
     morph_kernel_size: 5
     min_component_size: 400
-    target_fill_ratio: [0.35, 0.85]
+    target_fill_ratio: [0.85, 1.0]
+    edge_proximity_px: 0
 
   BALL:
-    margin_pct: 0.12
-    threshold_bias: -6.0            # More sensitive for white-on-white
+    margin_pct: 0.0
+    threshold_bias: -6.0
     morph_kernel_size: 5
-    target_fill_ratio: [0.20, 0.75]
+    target_fill_ratio: [0.85, 1.0]
+    edge_proximity_px: 0
 
   SHOE:
-    margin_pct: 0.06
-    centering_bias_y: 0.02        # Slight downward offset (sole at bottom)
-    target_fill_ratio: [0.35, 0.85]
+    margin_pct: 0.0
+    target_fill_ratio: [0.85, 1.0]
+    edge_proximity_px: 0
 
   BAG:
-    margin_pct: 0.05
-    target_fill_ratio: [0.40, 0.90]
+    margin_pct: 0.0
+    target_fill_ratio: [0.85, 1.0]
+    edge_proximity_px: 0
 
   APPAREL_FOLDED:
-    margin_pct: 0.06
-    target_fill_ratio: [0.30, 0.80]
+    margin_pct: 0.0
+    target_fill_ratio: [0.85, 1.0]
+    edge_proximity_px: 0
 
   APPAREL_WORN_OR_SHAPED:
-    margin_pct: 0.08
-    target_fill_ratio: [0.25, 0.85]
-    adaptive_block_size: 25        # Larger block for softer transitions
-    adaptive_c: 8.0                # Lower C to capture softer edges
+    margin_pct: 0.0
+    target_fill_ratio: [0.85, 1.0]
+    adaptive_block_size: 25
+    adaptive_c: 8.0
+    edge_proximity_px: 0
 
   ACCESSORY_SMALL:
-    margin_pct: 0.10
-    min_component_size: 200       # Smaller objects tolerated
-    target_fill_ratio: [0.20, 0.70]
-    min_output_px: 100            # Prevent tiny tees/markers from being invisible
+    margin_pct: 0.0
+    min_component_size: 50
+    target_fill_ratio: [0.08, 1.0]
+    min_output_px: 100
+    edge_proximity_px: 0
 
   BOX_OR_PACKAGING:
-    margin_pct: 0.04
-    target_fill_ratio: [0.40, 0.90]
+    margin_pct: 0.0
+    target_fill_ratio: [0.85, 1.0]
+    edge_proximity_px: 0

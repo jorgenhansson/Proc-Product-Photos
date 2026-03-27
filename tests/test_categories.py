@@ -32,9 +32,11 @@ class TestCategoryDefaults:
         assert cfg.centering_bias_x == 0.0
         assert cfg.centering_bias_y == 0.0
 
-    def test_shoe_has_vertical_bias(self):
+    def test_shoe_zero_margin(self):
+        """In zero-margin mode, SHOE has no margin and no bias."""
         cfg = CATEGORY_DEFAULTS["SHOE"]
-        assert cfg.centering_bias_y > 0
+        assert cfg.margin_pct == 0.0
+        assert cfg.edge_proximity_px == 0
 
 
 class TestResolveCategory:

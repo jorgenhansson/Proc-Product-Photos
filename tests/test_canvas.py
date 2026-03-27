@@ -30,11 +30,18 @@ class TestCropRegion:
 
 
 class TestResizeToFit:
-    def test_doesnt_upscale(self):
+    def test_doesnt_upscale_low_fill_target(self):
+        """With fill_ratio_target < 0.80, small images are NOT upscaled."""
         small = np.zeros((50, 50, 3), dtype=np.uint8)
-        result = resize_to_fit(small, canvas_size=200, fill_ratio_target=0.85)
+        result = resize_to_fit(small, canvas_size=200, fill_ratio_target=0.60)
         assert result.shape[0] <= 50
         assert result.shape[1] <= 50
+
+    def test_upscales_in_zero_margin_mode(self):
+        """With fill_ratio_target >= 0.95 (zero-margin), upscaling IS allowed."""
+        small = np.zeros((50, 50, 3), dtype=np.uint8)
+        result = resize_to_fit(small, canvas_size=200, fill_ratio_target=1.0)
+        assert max(result.shape[:2]) == 200
 
     def test_min_output_px_forces_upscale(self):
         """Tiny image should be upscaled to meet min_output_px."""
@@ -42,10 +49,10 @@ class TestResizeToFit:
         result = resize_to_fit(tiny, canvas_size=200, min_output_px=80)
         assert max(result.shape[:2]) >= 80
 
-    def test_min_output_px_zero_no_upscale(self):
-        """min_output_px=0 should not trigger upscaling."""
+    def test_min_output_px_zero_no_upscale_low_fill(self):
+        """min_output_px=0 with low fill target should not upscale."""
         tiny = np.zeros((10, 10, 3), dtype=np.uint8)
-        result = resize_to_fit(tiny, canvas_size=200, min_output_px=0)
+        result = resize_to_fit(tiny, canvas_size=200, fill_ratio_target=0.60, min_output_px=0)
         assert result.shape[0] <= 10
         assert result.shape[1] <= 10
 
