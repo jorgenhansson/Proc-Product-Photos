@@ -118,6 +118,64 @@ def _lab_distance_to_white(pixels: np.ndarray) -> np.ndarray:
     return dist.reshape(original_shape)
 
 
+def mask_from_white_bg_edge_enhanced(
+    image: np.ndarray,
+    distance_threshold: float = 12.0,
+    bias: float = 0.0,
+    canny_low: int = 30,
+    canny_high: int = 100,
+    dilate_iterations: int = 3,
+) -> np.ndarray:
+    """Generate mask combining LAB distance with Canny edge detection.
+
+    Designed for white/near-white objects on white backgrounds (e.g. golf
+    balls) where color-distance alone cannot separate fg from bg.
+
+    Strategy:
+    1. Standard LAB distance mask (catches colored areas: logos, text)
+    2. Canny edge detection (catches shape boundary via gradient)
+    3. Dilate edges to close gaps
+    4. Flood-fill from edges to create filled contour mask
+    5. Union of distance mask and contour mask
+
+    This produces a usable mask even when the object is nearly the same
+    color as the background, as long as there is a visible edge.
+    """
+    rgb = image[:, :, :3]
+    h, w = rgb.shape[:2]
+
+    # 1. Standard distance mask
+    dist = _lab_distance_to_white(rgb)
+    effective_threshold = max(1.0, distance_threshold + bias)
+    distance_mask = (dist > effective_threshold).astype(np.uint8) * 255
+
+    # 2. Canny edge detection
+    gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
+    # Light blur to reduce noise while preserving object edges
+    blurred = cv2.GaussianBlur(gray, (5, 5), 1.0)
+    edges = cv2.Canny(blurred, canny_low, canny_high)
+
+    # 3. Dilate edges to close gaps in the contour
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    edges_dilated = cv2.dilate(edges, kernel, iterations=dilate_iterations)
+
+    # 4. Find contours and fill them to create solid mask regions
+    contour_mask = np.zeros((h, w), dtype=np.uint8)
+    contours, _ = cv2.findContours(
+        edges_dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+    )
+    # Only fill contours that are large enough to be a product
+    min_contour_area = h * w * 0.002  # 0.2% of image
+    for contour in contours:
+        if cv2.contourArea(contour) >= min_contour_area:
+            cv2.drawContours(contour_mask, [contour], -1, 255, cv2.FILLED)
+
+    # 5. Union of both masks
+    combined = cv2.bitwise_or(distance_mask, contour_mask)
+
+    return combined
+
+
 def mask_from_complex_bg(
     image: np.ndarray,
     block_size: int = 21,

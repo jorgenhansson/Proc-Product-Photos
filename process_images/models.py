@@ -152,6 +152,8 @@ class ImageContext:
     category: str = ""
     background_type: Optional[BackgroundType] = None
     prior_mask: Optional[np.ndarray] = None
+    primary_flags: list[Flag] = field(default_factory=list)
+    primary_result: Optional[CropResult] = None
 
 
 @dataclass

@@ -104,10 +104,23 @@ class TestValidation:
         flags = validate_crop_result(result, (200, 200), context, config)
         assert len(flags) == 0
 
-    def test_category_inconsistency(self, config, context):
+    def test_fill_ratio_too_low(self, config, context):
+        """Fill ratio far below category minimum triggers FILL_RATIO_TOO_LOW."""
         result = CropResult(
             mask=np.zeros((200, 200), dtype=np.uint8),
             metrics=CropMetrics(fill_ratio=0.01),  # way below expected
+        )
+        flags = validate_crop_result(result, (200, 200), context, config)
+        assert Flag.FILL_RATIO_TOO_LOW in flags
+
+    def test_category_inconsistency_via_aspect_ratio(self, config, context):
+        """Aspect ratio outside category range triggers CROP_CATEGORY_INCONSISTENT."""
+        # BALL expects aspect ratio 1.0-1.5; give it 5.0 (very elongated)
+        mask = np.ones((200, 200), dtype=np.uint8) * 255
+        result = CropResult(
+            mask=mask,
+            object_bbox=BBox(10, 10, 180, 36),  # AR = 5.0
+            metrics=CropMetrics(fill_ratio=0.5),
         )
         flags = validate_crop_result(result, (200, 200), context, config)
         assert Flag.CROP_CATEGORY_INCONSISTENT in flags
@@ -130,10 +143,10 @@ class TestRelaxedTolerance:
     """Tests for the tolerance parameter used in fallback validation."""
 
     def test_strict_flags_low_fill(self, config, context):
-        """Fill ratio 0.22 is below BALL min (0.30) at tolerance=1.0."""
+        """Fill ratio 0.10 is below BALL min (0.20) at tolerance=1.0."""
         result = CropResult(
             mask=np.zeros((200, 200), dtype=np.uint8),
-            metrics=CropMetrics(fill_ratio=0.22),
+            metrics=CropMetrics(fill_ratio=0.10),
         )
         flags = validate_crop_result(result, (200, 200), context, config, tolerance=1.0)
         assert Flag.FILL_RATIO_TOO_LOW in flags

@@ -175,9 +175,11 @@ class Pipeline:
             self._save_outputs(crop_result.final_image, rows, output_dir, result)
 
         elif self.fallback and self.config.fallback.enabled:
-            # Attempt fallback — seed with classical mask for better results
+            # Attempt fallback — seed with classical mask and failure context
             result.fallback_attempted = True
             context.prior_mask = crop_result.mask
+            context.primary_flags = blocking_flags
+            context.primary_result = crop_result
             t_fb = time.perf_counter()
 
             fb_result = self.fallback.crop(image, context, self.config)

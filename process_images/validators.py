@@ -42,30 +42,32 @@ def validate_crop_result(
 
     h, w = image_shape[:2]
 
-    # -- Mask size (tolerance relaxes the minimum) --
+    # -- Mask size (per-category override, fallback to global) --
     if result.mask is not None:
         mask_ratio = np.count_nonzero(result.mask) / max(1, h * w)
-        effective_min_object = gc.min_object_ratio * tolerance
+        min_obj = cat_config.min_object_ratio if cat_config.min_object_ratio > 0 else gc.min_object_ratio
+        effective_min_object = min_obj * tolerance
         if mask_ratio < effective_min_object:
             flags.append(Flag.MASK_TOO_SMALL)
 
-    # -- Bounding box (check object extent, not the expanded crop region) --
+    # -- Bounding box (per-category override, fallback to global) --
     if result.object_bbox is not None:
         bbox_ratio = result.object_bbox.area / max(1, h * w)
         if bbox_ratio > gc.max_bbox_ratio:
             flags.append(Flag.BBOX_TOO_LARGE)
-        effective_min_bbox = gc.min_bbox_ratio * tolerance
+        min_bb = cat_config.min_bbox_ratio if cat_config.min_bbox_ratio > 0 else gc.min_bbox_ratio
+        effective_min_bbox = min_bb * tolerance
         if bbox_ratio < effective_min_bbox:
             flags.append(Flag.BBOX_TOO_SMALL)
 
         # Aspect ratio check (orientation-independent: uses max/min)
+        # Tolerance widens the acceptable range for fallback validation
         ob = result.object_bbox
         if ob.w > 0 and ob.h > 0:
             ar = max(ob.w, ob.h) / min(ob.w, ob.h)
-            if (
-                ar < cat_config.expected_aspect_ratio_min
-                or ar > cat_config.expected_aspect_ratio_max
-            ):
+            ar_min = cat_config.expected_aspect_ratio_min * tolerance
+            ar_max = cat_config.expected_aspect_ratio_max / tolerance
+            if ar < ar_min or ar > ar_max:
                 flags.append(Flag.CROP_CATEGORY_INCONSISTENT)
 
     # -- Fill ratio (tolerance widens the acceptable range) --
@@ -101,18 +103,6 @@ def validate_crop_result(
                         or col_idx[-1] > canvas_w - prox - 1
                     ):
                         flags.append(Flag.OBJECT_TOO_CLOSE_TO_EDGE)
-
-    # -- Category consistency (tolerance widens acceptable deviation) --
-    if result.metrics.fill_ratio > 0:
-        expected_mid = (
-            cat_config.target_fill_ratio_min + cat_config.target_fill_ratio_max
-        ) / 2
-        deviation = abs(result.metrics.fill_ratio - expected_mid) / max(
-            0.01, expected_mid
-        )
-        consistency_threshold = 0.5 / tolerance  # relaxed = higher allowed deviation
-        if deviation > consistency_threshold:
-            flags.append(Flag.CROP_CATEGORY_INCONSISTENT)
 
     # Deduplicate against flags already in the result
     existing = set(result.flags)

@@ -36,8 +36,12 @@ CATEGORY_DEFAULTS: dict[str, CategoryConfig] = {
     "BALL": CategoryConfig(
         name="BALL",
         margin_pct=0.12,
+        threshold_bias=-6.0,
         morph_kernel_size=5,
-        target_fill_ratio_min=0.30,
+        min_component_size=200,
+        min_object_ratio=0.001,
+        min_bbox_ratio=0.005,
+        target_fill_ratio_min=0.20,
         target_fill_ratio_max=0.75,
         expected_aspect_ratio_min=1.0,
         expected_aspect_ratio_max=1.5,
@@ -78,8 +82,10 @@ CATEGORY_DEFAULTS: dict[str, CategoryConfig] = {
     "ACCESSORY_SMALL": CategoryConfig(
         name="ACCESSORY_SMALL",
         margin_pct=0.10,
-        min_component_size=200,
-        target_fill_ratio_min=0.20,
+        min_component_size=100,
+        min_object_ratio=0.0002,
+        min_bbox_ratio=0.002,
+        target_fill_ratio_min=0.15,
         target_fill_ratio_max=0.70,
         min_output_px=100,
     ),
@@ -98,7 +104,12 @@ def resolve_category(
     category: str,
     yaml_categories: dict[str, CategoryConfig],
 ) -> CategoryConfig:
-    """Resolve category config with priority: YAML override > hardcoded default > generic.
+    """Resolve category config: hardcoded default ← YAML override (merged).
+
+    Priority: hardcoded category default provides base values, then
+    YAML-specified fields override them.  This ensures new fields
+    added to CATEGORY_DEFAULTS are always available even if the YAML
+    was written before those fields existed.
 
     Args:
         category: Category name from mapping.
@@ -107,8 +118,43 @@ def resolve_category(
     Returns:
         The most specific CategoryConfig available.
     """
-    if category in yaml_categories:
-        return yaml_categories[category]
-    if category in CATEGORY_DEFAULTS:
-        return CATEGORY_DEFAULTS[category]
-    return CategoryConfig(name=category)
+    from dataclasses import fields as dc_fields
+
+    base = CATEGORY_DEFAULTS.get(category, CategoryConfig(name=category))
+
+    if category not in yaml_categories:
+        return base
+
+    yaml_cfg = yaml_categories[category]
+
+    # Merge: hardcoded category default ← YAML explicit values.
+    # We detect "explicitly set in YAML" by checking which fields in
+    # the raw YAML dict differ from what global inheritance alone would
+    # produce.  Fields that only have global-inherited values should
+    # NOT override hardcoded category defaults.
+    #
+    # Strategy: start from base (hardcoded), overlay yaml_cfg fields
+    # that were explicitly written in the YAML (not just inherited from
+    # global).  We approximate this by comparing yaml_cfg against a
+    # CategoryConfig built only from global inheritance (no YAML).
+    from ..config import GlobalConfig, _inherit_global_to_category
+    global_only = CategoryConfig(**{
+        **_inherit_global_to_category(GlobalConfig()),
+        "name": category,
+    })
+
+    merged_kwargs = {}
+    for f in dc_fields(CategoryConfig):
+        base_val = getattr(base, f.name)
+        yaml_val = getattr(yaml_cfg, f.name)
+        global_only_val = getattr(global_only, f.name)
+        # If YAML value differs from what pure-global inheritance gives,
+        # it was explicitly set in the YAML → use it.
+        if yaml_val != global_only_val:
+            merged_kwargs[f.name] = yaml_val
+        else:
+            # Not explicitly set in YAML → use hardcoded category default
+            merged_kwargs[f.name] = base_val
+
+    merged_kwargs["name"] = category
+    return CategoryConfig(**merged_kwargs)

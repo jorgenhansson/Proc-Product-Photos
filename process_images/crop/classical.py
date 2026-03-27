@@ -22,6 +22,7 @@ from .masks import (
     mask_from_alpha,
     mask_from_complex_bg,
     mask_from_white_bg,
+    mask_from_white_bg_edge_enhanced,
 )
 from .morphology import (
     clean_mask,
@@ -124,6 +125,9 @@ class ClassicalCropStrategy(CropStrategy):
             component_count=sig_count,
         )
 
+    # Categories that benefit from edge-enhanced mask on white backgrounds
+    _EDGE_ENHANCED_CATEGORIES = {"BALL", "CLUB_HEAD_ONLY"}
+
     def _generate_mask(
         self,
         image: np.ndarray,
@@ -131,10 +135,20 @@ class ClassicalCropStrategy(CropStrategy):
         gc: object,
         cat_config: CategoryConfig,
     ) -> np.ndarray:
-        """Select and run the appropriate mask generator."""
+        """Select and run the appropriate mask generator.
+
+        For BALL and CLUB_HEAD_ONLY on white backgrounds, uses
+        edge-enhanced masking to detect near-white objects.
+        """
         if bg_type == BackgroundType.TRANSPARENT:
             return mask_from_alpha(image, gc.alpha_threshold)
         elif bg_type == BackgroundType.WHITE_BG:
+            if cat_config.name in self._EDGE_ENHANCED_CATEGORIES:
+                return mask_from_white_bg_edge_enhanced(
+                    image[:, :, :3],
+                    gc.white_distance_threshold,
+                    cat_config.threshold_bias,
+                )
             return mask_from_white_bg(
                 image[:, :, :3],
                 gc.white_distance_threshold,

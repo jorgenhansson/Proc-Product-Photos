@@ -77,8 +77,9 @@ categories:
 
   BALL:
     margin_pct: 0.12
+    threshold_bias: -6.0            # More sensitive for white-on-white
     morph_kernel_size: 5
-    target_fill_ratio: [0.30, 0.75]
+    target_fill_ratio: [0.20, 0.75]
 
   SHOE:
     margin_pct: 0.06
