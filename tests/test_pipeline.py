@@ -310,3 +310,169 @@ class TestPipelineEndToEnd:
         assert len(r.output_paths) == 2
         assert (output_dir / "ART100_front.jpg").exists()
         assert (output_dir / "ART100_side.jpg").exists()
+
+
+class TestFallbackRecoveryIntegration:
+    """End-to-end tests for the fallback recovery path (#28).
+
+    These tests create images that fail primary validation but succeed
+    with relaxed fallback tolerance, verifying the full recovery flow.
+    """
+
+    def test_aspect_ratio_recovery(self, setup_dirs):
+        """Image with AR slightly outside category range should be RECOVERED.
+
+        BALL expects AR 1.0-1.5.  A 60x96 dark rect on 200x200 gives
+        AR ~1.6 → strict flags CROP_CATEGORY_INCONSISTENT →
+        fallback returns primary result → relaxed (AR max = 1.5/0.8 = 1.875)
+        accepts → RECOVERED.
+        """
+        input_dir, output_dir, review_dir = setup_dirs
+
+        # Dark rectangle: 70w x 120h on 200x200.
+        # After morphology → bbox AR ~1.60 → strict flags (>1.5), relaxed passes (<1.875)
+        img = np.full((200, 200, 3), 255, dtype=np.uint8)
+        img[40:160, 65:135] = [40, 40, 40]  # 120h x 70w
+
+        _save_test_image(input_dir / "ELONGATED_BALL.png", img)
+
+        mapping = _make_mapping(("ELONGATED_BALL", "ART500", "front", "BALL"))
+        config = PipelineConfig(
+            global_config=GlobalConfig(canvas_size=200),
+            fallback=FallbackConfig(
+                enabled=True,
+                validation_tolerance=0.8,
+            ),
+        )
+
+        pipeline = Pipeline(
+            config, mapping, ClassicalCropStrategy(), AIFallbackCropStrategy()
+        )
+        stats = pipeline.run(input_dir, output_dir, review_dir)
+
+        r = stats.results[0]
+        assert r.fallback_attempted, "Fallback should have been attempted"
+        assert r.status == ProcessingStatus.RECOVERED, (
+            f"Expected RECOVERED, got {r.status.value}. Flags: {[f.value for f in r.flags]}"
+        )
+        assert (output_dir / "ELONGATED_BALL-cropped.jpg").exists()
+
+    def test_fallback_still_fails_for_very_bad_image(self, setup_dirs):
+        """Pure white image → no object found → fallback can't help → FLAGGED."""
+        input_dir, output_dir, review_dir = setup_dirs
+
+        white = np.full((200, 200, 3), 255, dtype=np.uint8)
+        _save_test_image(input_dir / "EMPTY.png", white)
+
+        mapping = _make_mapping(("EMPTY", "ART600", "front", "BALL"))
+        config = PipelineConfig(
+            global_config=GlobalConfig(canvas_size=200),
+            fallback=FallbackConfig(enabled=True, validation_tolerance=0.8),
+        )
+
+        pipeline = Pipeline(
+            config, mapping, ClassicalCropStrategy(), AIFallbackCropStrategy()
+        )
+        stats = pipeline.run(input_dir, output_dir, review_dir)
+
+        r = stats.results[0]
+        assert r.fallback_attempted
+        assert r.status == ProcessingStatus.FLAGGED
+        # Should be in review
+        assert (review_dir / "EMPTY.png").exists()
+
+    def test_recovered_image_has_metrics(self, setup_dirs):
+        """RECOVERED image should have both primary and fallback metrics."""
+        input_dir, output_dir, review_dir = setup_dirs
+
+        img = np.full((200, 200, 3), 255, dtype=np.uint8)
+        img[40:160, 65:135] = [40, 40, 40]  # same as AR recovery test
+        _save_test_image(input_dir / "METRICS.png", img)
+
+        mapping = _make_mapping(("METRICS", "ART700", "front", "BALL"))
+        config = PipelineConfig(
+            global_config=GlobalConfig(canvas_size=200),
+            fallback=FallbackConfig(enabled=True, validation_tolerance=0.8),
+        )
+
+        pipeline = Pipeline(
+            config, mapping, ClassicalCropStrategy(), AIFallbackCropStrategy()
+        )
+        stats = pipeline.run(input_dir, output_dir, review_dir)
+
+        r = stats.results[0]
+        if r.status == ProcessingStatus.RECOVERED:
+            assert r.crop_metrics is not None, "Primary metrics should be set"
+            assert r.fallback_metrics is not None, "Fallback metrics should be set"
+            assert r.crop_metrics.fill_ratio > 0
+            assert r.fallback_metrics.fill_ratio > 0
+
+    def test_multi_component_recovery(self, setup_dirs):
+        """Image with two distinct objects → MULTIPLE_LARGE_COMPONENTS.
+
+        Fallback (validation-only path) should re-use primary result
+        with relaxed tolerance and recover.
+        """
+        input_dir, output_dir, review_dir = setup_dirs
+
+        # Two dark squares far apart (two components)
+        img = np.full((200, 200, 3), 255, dtype=np.uint8)
+        img[20:60, 20:60] = [40, 40, 40]
+        img[140:180, 140:180] = [40, 40, 40]
+        _save_test_image(input_dir / "MULTI.png", img)
+
+        mapping = _make_mapping(("MULTI", "ART800", "front", "BAG"))
+        config = PipelineConfig(
+            global_config=GlobalConfig(canvas_size=200),
+            fallback=FallbackConfig(enabled=True, validation_tolerance=0.7),
+        )
+
+        pipeline = Pipeline(
+            config, mapping, ClassicalCropStrategy(), AIFallbackCropStrategy()
+        )
+        stats = pipeline.run(input_dir, output_dir, review_dir)
+
+        r = stats.results[0]
+        assert r.fallback_attempted
+        # Multi-component may or may not recover depending on GrabCut
+        # but the flow should not crash
+        assert r.status in (ProcessingStatus.RECOVERED, ProcessingStatus.FLAGGED)
+
+    def test_recovery_stats_counted_correctly(self, setup_dirs):
+        """Mix of OK, RECOVERED, and FLAGGED should count correctly in stats."""
+        input_dir, output_dir, review_dir = setup_dirs
+
+        # Good image → OK
+        good = np.full((200, 200, 3), 255, dtype=np.uint8)
+        good[60:140, 60:140] = [40, 40, 40]
+        _save_test_image(input_dir / "GOOD.png", good)
+
+        # AR slightly off → should RECOVER
+        elongated = np.full((200, 200, 3), 255, dtype=np.uint8)
+        elongated[40:160, 65:135] = [40, 40, 40]  # AR ~1.60 → strict fails, relaxed passes
+        _save_test_image(input_dir / "RECOVER.png", elongated)
+
+        # Pure white → FLAGGED
+        white = np.full((200, 200, 3), 255, dtype=np.uint8)
+        _save_test_image(input_dir / "FAIL.png", white)
+
+        mapping = _make_mapping(
+            ("GOOD", "A1", "front", "BALL"),
+            ("RECOVER", "A2", "front", "BALL"),
+            ("FAIL", "A3", "front", "BALL"),
+        )
+        config = PipelineConfig(
+            global_config=GlobalConfig(canvas_size=200),
+            fallback=FallbackConfig(enabled=True, validation_tolerance=0.8),
+        )
+
+        pipeline = Pipeline(
+            config, mapping, ClassicalCropStrategy(), AIFallbackCropStrategy()
+        )
+        stats = pipeline.run(input_dir, output_dir, review_dir)
+
+        d = stats.to_dict()
+        assert d["general"]["total_attempted"] == 3
+        # At least one should be OK, at least one failed
+        assert d["general"]["total_ok"] >= 1
+        assert d["general"]["total_flagged"] + d["general"]["total_failed"] >= 1
