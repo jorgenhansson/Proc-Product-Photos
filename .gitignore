@@ -15,3 +15,5 @@ dimbo/
 dimbo_run/
 full_test/
 full_test_v2/
+final_run/
+.claude/settings.local.json

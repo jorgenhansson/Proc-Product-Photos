@@ -7,8 +7,41 @@ All notable changes to Proc-Product-Photos are documented here.
 - Pending: naming convention based on Dimbo image angle codes
 - Pending: 14 additional product categories (IRON_SET, GLOVE, CAP, etc.)
 - Pending: testing on 8000 production images
-- Pending: thumbnail contact sheet (#36)
-- Pending: incremental mode (#38)
+
+## [0.9.0] - 2026-03-28
+
+### Added
+- Thumbnail contact sheet for visual QA (#36)
+  - Grid of thumbnails grouped by category, green/red borders for status
+  - Integrated: `--contact-sheet ./contact.jpg`
+  - Standalone: `python -m process_images.contact_sheet`
+- Incremental mode: skip unchanged images (#38)
+  - `--incremental`: skip images whose output is newer than input + config
+  - `--force-category CAT`: reprocess specific categories regardless
+  - Checks input mtime, rules mtime, mapping mtime vs output mtime
+- BMP and WebP added to supported input extensions (#26)
+- Warn when YAML category name doesn't match known defaults (#27)
+- Type coercion in config parser: string→int, int→float, etc. (#23)
+  - Also applied to category configs built via _build_category_config
+  - Warning logged on coercion failure, value kept as-is
+- Cache LAB conversion to avoid redundant RGB→LAB (#21)
+  - `rgb_to_lab()` + `precomputed_lab` parameter on mask functions
+  - 16% faster mask generation (~92ms saved per 4000x3000 image)
+- Integration tests for fallback recovery path (#28)
+  - AR recovery, failed recovery, metrics, multi-component, stats counting
+- Case-insensitive SKU lookup for macOS filesystems (#30)
+
+### Fixed
+- GC_FGD seeding respects prior mask holes — hollow objects no longer
+  corrupted during GrabCut initialization (#24)
+- force_category case sensitivity in incremental mode
+- CROP_CATEGORY_INCONSISTENT split deemed obsolete (#29, closed)
+
+### Verified
+- Full run on 508 real supplier images: 506 OK (99.6%), 2 corrupt files
+- Corrupt files identified: FJ_39253_03.png (invalid data),
+  TM26BAL-TE925-M1040801-TP5-PIX-GLB-No5-3Q-V3.png (broken PNG stream)
+- 245 automated tests, 0 open issues
 
 ## [0.8.0] - 2026-03-28
 
