@@ -50,6 +50,9 @@ def main(
     results_file: Optional[Path] = typer.Option(
         None, "--results", help="Output per-image results JSON (for diff analysis)"
     ),
+    contact_sheet: Optional[Path] = typer.Option(
+        None, "--contact-sheet", help="Output contact sheet image (.jpg or .png)"
+    ),
     html_report: Optional[Path] = typer.Option(
         None, "--html-report", help="Output HTML report file"
     ),
@@ -242,6 +245,23 @@ def main(
     if results_file:
         stats.results_to_json(results_file)
         log.info("Per-image results written to %s", results_file)
+
+    if contact_sheet:
+        from .contact_sheet import generate_contact_sheet
+
+        # Build results dict for contact sheet
+        results_data = {}
+        for r in stats.results:
+            results_data[r.source_path.name] = {
+                "status": r.status.value,
+                "category": r.category,
+                "flags": [f.value for f in r.flags],
+                "fill_ratio": r.crop_metrics.fill_ratio if r.crop_metrics else 0.0,
+            }
+        generate_contact_sheet(
+            output_dir, results_data, contact_sheet,
+        )
+        log.info("Contact sheet written to %s", contact_sheet)
 
     if html_report:
         from .reporting import write_html_report
