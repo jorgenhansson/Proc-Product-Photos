@@ -10,7 +10,7 @@ from typing import Optional
 
 from .config import PipelineConfig
 from .crop.base import CropStrategy
-from .io_utils import discover_images, load_image, save_jpeg
+from .io_utils import discover_images, load_image, save_image
 from .mapping import MappingLookup
 from .models import (
     Flag,
@@ -112,15 +112,22 @@ class Pipeline:
 
         category = rows[0].category
         result.category = category
-        result.proposed_filenames = [row.output_filename for row in rows]
+        gc = self.config.global_config
+        fn_pattern = gc.filename_pattern
+        out_ext = gc.output_format.lower().replace("jpeg", "jpg")
+        source_stem = img_path.stem
+        result.proposed_filenames = [
+            row.output_filename_for_source(source_stem, fn_pattern, out_ext)
+            for row in rows
+        ]
 
         # -- Filename conflict check (pre-existing files + same-batch) --
         for row in rows:
-            fname = row.output_filename
+            fname = row.output_filename_for_source(source_stem, fn_pattern, out_ext)
             if fname in self._seen_outputs:
                 result.flags.append(Flag.NAMING_CONFLICT)
                 logger.warning("Same-batch output conflict: %s", fname)
-            elif (output_dir / fname).exists():
+            elif (output_dir / fname).exists() and not gc.overwrite:
                 result.flags.append(Flag.NAMING_CONFLICT)
                 logger.warning("Pre-existing output conflict: %s", fname)
 
@@ -172,7 +179,7 @@ class Pipeline:
             # Success — save outputs
             result.status = ProcessingStatus.OK
             result.flags = all_flags
-            self._save_outputs(crop_result.final_image, rows, output_dir, result)
+            self._save_outputs(crop_result.final_image, rows, output_dir, result, sku)
 
         elif self.fallback and self.config.fallback.enabled:
             # Attempt fallback — seed with classical mask and failure context
@@ -200,7 +207,7 @@ class Pipeline:
                 result.status = ProcessingStatus.RECOVERED
                 result.flags = all_flags  # keep original flags for traceability
                 self._save_outputs(
-                    fb_result.final_image, rows, output_dir, result
+                    fb_result.final_image, rows, output_dir, result, sku
                 )
             else:
                 # Still flagged after fallback
@@ -220,16 +227,19 @@ class Pipeline:
         return result
 
     def _save_outputs(
-        self, final_image, rows, output_dir, result
+        self, final_image, rows, output_dir, result, source_stem: str = ""
     ) -> None:
         """Save the final image for each mapping row.
 
         Skips writing if the output filename was already written in this
         batch (prevents silent overwrite on same-batch collisions).
         """
-        quality = self.config.global_config.jpeg_quality
+        gc = self.config.global_config
+        quality = gc.jpeg_quality
+        fn_pattern = gc.filename_pattern
+        out_ext = gc.output_format.lower().replace("jpeg", "jpg")
         for row in rows:
-            fname = row.output_filename
+            fname = row.output_filename_for_source(source_stem, fn_pattern, out_ext)
             if fname in self._seen_outputs:
                 logger.warning(
                     "Skipping write — already written in this batch: %s",
@@ -237,7 +247,7 @@ class Pipeline:
                 )
                 continue
             out_path = output_dir / fname
-            save_jpeg(final_image, out_path, quality)
+            save_image(final_image, out_path, quality=quality, output_format=out_ext)
             self._seen_outputs.add(fname)
             result.output_paths.append(out_path)
 

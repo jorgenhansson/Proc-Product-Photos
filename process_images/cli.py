@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import sys
 from pathlib import Path
 from typing import Optional
 
@@ -19,19 +18,31 @@ app = typer.Typer(
 @app.command()
 def main(
     input_dir: Path = typer.Option(
-        ..., "--input", help="Input directory containing supplier images"
+        ..., "--input", "-i", help="Input directory containing supplier images"
     ),
     output_dir: Path = typer.Option(
-        ..., "--output", help="Output directory for processed images"
+        ..., "--output", "-o", help="Output directory for processed images"
     ),
     review_dir: Path = typer.Option(
         ..., "--review", help="Review directory for flagged/failed images"
     ),
     mapping_file: Path = typer.Option(
-        ..., "--mapping", help="CSV or XLSX mapping file (SKU to article)"
+        ..., "--mapping", "-m", help="CSV or XLSX mapping file (SKU to article)"
     ),
     rules_file: Path = typer.Option(
-        ..., "--rules", help="YAML rules/configuration file"
+        ..., "--rules", "-r", help="YAML rules/configuration file"
+    ),
+    canvas_size: Optional[int] = typer.Option(
+        None, "--canvas-size", "-s",
+        help="Output canvas size in pixels (default: 1000, from rules YAML)",
+    ),
+    output_format: Optional[str] = typer.Option(
+        None, "--format", "-f",
+        help="Output image format: jpg, png, webp, tiff (default: jpg)",
+    ),
+    overwrite: bool = typer.Option(
+        False, "--overwrite",
+        help="Overwrite existing output files without flagging as conflict",
     ),
     stats_file: Optional[Path] = typer.Option(
         None, "--stats", help="Output JSON statistics file"
@@ -70,14 +81,38 @@ def main(
         log.error("Rules file does not exist: %s", rules_file)
         raise typer.Exit(1)
 
+    # -- Validate format --
+    from .io_utils import SUPPORTED_OUTPUT_FORMATS
+
+    if output_format is not None:
+        fmt = output_format.lower().replace("jpeg", "jpg")
+        if fmt not in SUPPORTED_OUTPUT_FORMATS:
+            log.error(
+                "Unsupported output format '%s'. Supported: %s",
+                output_format, ", ".join(sorted(SUPPORTED_OUTPUT_FORMATS)),
+            )
+            raise typer.Exit(1)
+
     # -- Load configuration --
     from .config import load_config
 
     config = load_config(rules_file)
+
+    # CLI overrides take precedence over YAML
+    if canvas_size is not None:
+        config.global_config.canvas_size = canvas_size
+    if output_format is not None:
+        config.global_config.output_format = output_format.lower().replace("jpeg", "jpg")
+    if overwrite:
+        config.global_config.overwrite = True
+
     log.info(
-        "Loaded config: %d category overrides, fallback=%s",
+        "Config: %d categories, fallback=%s, canvas=%dpx, format=%s, overwrite=%s",
         len(config.categories),
-        "enabled" if config.fallback.enabled else "disabled",
+        "on" if config.fallback.enabled else "off",
+        config.global_config.canvas_size,
+        config.global_config.output_format,
+        config.global_config.overwrite,
     )
 
     # -- Load mapping --

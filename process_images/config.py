@@ -16,10 +16,24 @@ import yaml
 
 @dataclass
 class CategoryConfig:
-    """Crop and processing configuration for a product category."""
+    """Crop and processing configuration for a product category.
+
+    Margins can be specified per-side or uniformly:
+    - margin_pct: uniform fallback (used if per-side value is < 0)
+    - margin_top/bottom/left/right: per-side overrides (-1 = use margin_pct)
+
+    Margin mode (margin_mode) controls how margin_pct is interpreted:
+    - "object": margin relative to object bbox dimension (default, backwards compat)
+    - "image": margin relative to image max dimension
+    """
 
     name: str = ""
     margin_pct: float = 0.05
+    margin_top: float = -1.0     # -1 = use margin_pct
+    margin_bottom: float = -1.0
+    margin_left: float = -1.0
+    margin_right: float = -1.0
+    margin_mode: str = "image"   # "image" or "object"
     threshold_bias: float = 0.0
     morph_kernel_size: int = 5
     morph_iterations: int = 2
@@ -38,6 +52,20 @@ class CategoryConfig:
     adaptive_block_size: int = 21
     adaptive_c: float = 10.0
 
+    def resolve_margins(self) -> tuple[float, float, float, float]:
+        """Return (top, bottom, left, right) margin percentages.
+
+        Per-side values override margin_pct.  A value of -1 means
+        'use the uniform margin_pct'.
+        """
+        fallback = self.margin_pct
+        return (
+            fallback if self.margin_top < 0 else self.margin_top,
+            fallback if self.margin_bottom < 0 else self.margin_bottom,
+            fallback if self.margin_left < 0 else self.margin_left,
+            fallback if self.margin_right < 0 else self.margin_right,
+        )
+
 
 @dataclass
 class GlobalConfig:
@@ -50,7 +78,7 @@ class GlobalConfig:
     edge_whiteness_threshold: float = 0.85
     alpha_threshold: int = 128
     min_object_ratio: float = 0.005
-    max_bbox_ratio: float = 0.99
+    max_bbox_ratio: float = 1.0
     min_bbox_ratio: float = 0.01
     morph_kernel_size: int = 5
     morph_iterations: int = 2
@@ -58,7 +86,9 @@ class GlobalConfig:
     edge_proximity_px: int = 5
     adaptive_block_size: int = 21
     adaptive_c: float = 10.0
-    filename_pattern: str = "{store_article}_{suffix}.jpg"
+    output_format: str = "jpg"
+    filename_pattern: str = "{source_stem}-cropped.{ext}"
+    overwrite: bool = False
 
 
 @dataclass

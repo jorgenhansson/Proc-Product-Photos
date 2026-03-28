@@ -115,6 +115,24 @@ class MappingRow:
     def output_filename(self) -> str:
         return f"{self.store_article}_{self.suffix}.jpg"
 
+    def output_filename_for_source(
+        self, source_stem: str, pattern: str, ext: str = "jpg"
+    ) -> str:
+        """Generate output filename using a pattern.
+
+        Supported placeholders:
+        - {source_stem}: original filename without extension
+        - {store_article}: mapped article number
+        - {suffix}: mapped suffix (front, side, etc.)
+        - {ext}: output file extension (jpg, png, webp, etc.)
+        """
+        return pattern.format(
+            source_stem=source_stem,
+            store_article=self.store_article,
+            suffix=self.suffix,
+            ext=ext,
+        )
+
 
 @dataclass
 class CropMetrics:

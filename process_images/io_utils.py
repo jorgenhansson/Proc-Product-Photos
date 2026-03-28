@@ -84,22 +84,57 @@ def has_alpha(img: np.ndarray) -> bool:
     return img.ndim == 3 and img.shape[2] == 4
 
 
+SUPPORTED_OUTPUT_FORMATS = {"jpg", "jpeg", "png", "webp", "tiff", "tif"}
+
+
+def save_image(
+    img: np.ndarray,
+    path: Path,
+    quality: int = 95,
+    output_format: str = "jpg",
+) -> None:
+    """Save numpy array in the requested format.
+
+    Args:
+        img: Image as numpy array (RGB or RGBA).
+        path: Output path (extension is informational — format arg controls codec).
+        quality: JPEG/WebP quality 1-100.
+        output_format: One of jpg, png, webp, tiff.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pil_img = Image.fromarray(img)
+
+    fmt = output_format.lower().replace("jpeg", "jpg").replace("tif", "tiff")
+
+    if fmt in ("jpg", "webp"):
+        # JPEG and WebP don't support alpha — flatten onto white
+        if pil_img.mode == "RGBA":
+            bg = Image.new("RGB", pil_img.size, (255, 255, 255))
+            bg.paste(pil_img, mask=pil_img.split()[3])
+            pil_img = bg
+        elif pil_img.mode != "RGB":
+            pil_img = pil_img.convert("RGB")
+
+    if fmt == "jpg":
+        pil_img.save(path, format="JPEG", quality=quality, optimize=True)
+    elif fmt == "webp":
+        pil_img.save(path, format="WEBP", quality=quality)
+    elif fmt == "png":
+        pil_img.save(path, format="PNG", optimize=True)
+    elif fmt == "tiff":
+        pil_img.save(path, format="TIFF")
+    else:
+        # Fallback: let Pillow guess from extension
+        pil_img.save(path, quality=quality)
+
+
 def save_jpeg(
     img: np.ndarray, path: Path, quality: int = 95
 ) -> None:
-    """Save numpy array as JPEG. Creates parent directories as needed."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    pil_img = Image.fromarray(img)
-    if pil_img.mode == "RGBA":
-        bg = Image.new("RGB", pil_img.size, (255, 255, 255))
-        bg.paste(pil_img, mask=pil_img.split()[3])
-        pil_img = bg
-    elif pil_img.mode != "RGB":
-        pil_img = pil_img.convert("RGB")
-    pil_img.save(path, format="JPEG", quality=quality, optimize=True)
+    """Save numpy array as JPEG. Convenience wrapper around save_image."""
+    save_image(img, path, quality=quality, output_format="jpg")
 
 
 def save_png(img: np.ndarray, path: Path) -> None:
     """Save numpy array as PNG (used for mask visualizations)."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    Image.fromarray(img).save(path, format="PNG")
+    save_image(img, path, output_format="png")

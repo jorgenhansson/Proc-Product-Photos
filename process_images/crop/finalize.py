@@ -98,7 +98,13 @@ def finalize_crop(
     metrics = CropMetrics(
         fill_ratio=fill,
         crop_area_ratio=expanded.area / max(1, h * w),
-        margin_px=int(cat_config.margin_pct * max(w, h)),
+        margin_px=max(
+            object_bbox.x - expanded.x,                        # left margin
+            object_bbox.y - expanded.y,                        # top margin
+            (expanded.x + expanded.w) - (object_bbox.x + object_bbox.w),  # right
+            (expanded.y + expanded.h) - (object_bbox.y + object_bbox.h),  # bottom
+            0,
+        ),
         object_bbox=object_bbox,
         crop_bbox=expanded,
         object_pixel_count=object_pixel_count,
@@ -123,33 +129,48 @@ def expand_bbox(
     img_h: int,
     config: CategoryConfig,
 ) -> BBox:
-    """Expand bounding box using category-aware margin rules.
+    """Expand bounding box using asymmetric, category-aware margin rules.
 
-    Margins are relative to image dimensions (not object dimensions)
-    to ensure consistent professional whitespace regardless of how
-    large the detected object is.
+    Each side (top, bottom, left, right) can have its own margin
+    percentage.  The reference dimension depends on margin_mode:
+    - "image": percentage of max(img_w, img_h)  — consistent whitespace
+    - "object": percentage of the object bbox dimension on that axis
+
+    For thin objects (clubs), the narrow dimension gets extra margin
+    to prevent the object from becoming a 1px line after resize.
     """
-    img_max = max(img_w, img_h)
-    margin_px = int(img_max * config.margin_pct)
-    margin_x = margin_px
-    margin_y = margin_px
+    m_top, m_bottom, m_left, m_right = config.resolve_margins()
+
+    if config.margin_mode == "object":
+        ref_x = bbox.w
+        ref_y = bbox.h
+    else:  # "image" (default)
+        ref_x = max(img_w, img_h)
+        ref_y = ref_x
+
+    px_top = int(ref_y * m_top)
+    px_bottom = int(ref_y * m_bottom)
+    px_left = int(ref_x * m_left)
+    px_right = int(ref_x * m_right)
 
     is_thin = config.thin_object_protection and detect_thin_object(
         bbox, threshold=3.0
     )
 
-    # Thin-object protection: extra margin in the narrow dimension
+    # Thin-object protection: boost margin in the narrow dimension
     if is_thin:
         if bbox.w < bbox.h:
-            margin_x = int(margin_x * 1.5)
+            px_left = int(px_left * 1.5)
+            px_right = int(px_right * 1.5)
         else:
-            margin_y = int(margin_y * 1.5)
+            px_top = int(px_top * 1.5)
+            px_bottom = int(px_bottom * 1.5)
 
     expanded = BBox(
-        x=bbox.x - margin_x,
-        y=bbox.y - margin_y,
-        w=bbox.w + 2 * margin_x,
-        h=bbox.h + 2 * margin_y,
+        x=bbox.x - px_left,
+        y=bbox.y - px_top,
+        w=bbox.w + px_left + px_right,
+        h=bbox.h + px_top + px_bottom,
     )
 
     # Enforce minimum narrow dimension for thin objects so the
