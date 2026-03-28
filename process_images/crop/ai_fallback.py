@@ -238,7 +238,12 @@ class AIFallbackCropStrategy(CropStrategy):
                 iy = prior_bbox.y + prior_bbox.h // 4
                 iw = prior_bbox.w // 2
                 ih = prior_bbox.h // 2
-                mask_gc[iy : iy + ih, ix : ix + iw] = cv2.GC_FGD
+                # Only mark as definite foreground where prior mask agrees.
+                # Prevents background pixels inside hollow objects (donuts,
+                # hollow letters) from being forced to GC_FGD (#24).
+                inner_gc = mask_gc[iy : iy + ih, ix : ix + iw]
+                inner_prior = prior[iy : iy + ih, ix : ix + iw]
+                inner_gc[inner_prior == 255] = cv2.GC_FGD
 
             init_mode = cv2.GC_INIT_WITH_MASK
             rect = None

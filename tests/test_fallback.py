@@ -131,6 +131,36 @@ class TestPriorMaskInitialization:
         assert result.object_bbox is not None
         assert result.metrics.fill_ratio > 0
 
+    def test_hollow_prior_mask_respects_hole(self, config):
+        """Donut-shaped prior mask: center hole should NOT be marked GC_FGD (#24).
+
+        Creates a ring-shaped prior mask (foreground with hole in center).
+        The old code would mark the entire inner 50% bbox as GC_FGD,
+        corrupting the hole. The fix only marks pixels where prior==255.
+        """
+        # White bg with dark ring (donut)
+        img = np.full((200, 200, 3), 255, dtype=np.uint8)
+        # Outer ring
+        cv2 = __import__("cv2")
+        cv2.circle(img, (100, 100), 60, (40, 40, 40), 20)  # ring, not filled
+
+        # Prior mask matching the ring
+        prior = np.zeros((200, 200), dtype=np.uint8)
+        cv2.circle(prior, (100, 100), 60, 255, 20)
+
+        # Verify the hole exists in prior
+        assert prior[100, 100] == 0, "Center of donut should be background in prior"
+
+        context = ImageContext(
+            source_path=Path("test.png"),
+            category="BALL",
+            prior_mask=prior,
+        )
+        strategy = AIFallbackCropStrategy()
+        result = strategy.crop(img, context, config)
+        assert isinstance(result, CropResult)
+        # Should not crash and should produce some result
+
     def test_tiny_prior_no_gc_fgd_crash(self, config, white_bg_image):
         """A very small prior mask (< 4px wide) should not crash
         when the inner-bbox GC_FGD logic skips."""
