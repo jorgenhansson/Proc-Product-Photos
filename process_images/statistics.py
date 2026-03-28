@@ -15,7 +15,7 @@ from .models import BackgroundType, Flag, ProcessingResult, ProcessingStatus
 class StatsAccumulator:
     """Accumulates processing statistics across all images in a run."""
 
-    start_time: float = field(default_factory=time.time)
+    start_time: float = field(default_factory=time.perf_counter)
     total_discovered: int = 0
     total_attempted: int = 0
     results: list[ProcessingResult] = field(default_factory=list)
@@ -39,7 +39,7 @@ class StatsAccumulator:
 
     def to_dict(self) -> dict:
         """Build full statistics dictionary."""
-        elapsed = time.time() - self.start_time
+        elapsed = time.perf_counter() - self.start_time
 
         status_counts: Counter[ProcessingStatus] = Counter()
         bg_counts: Counter[BackgroundType] = Counter()

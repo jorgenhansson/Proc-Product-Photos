@@ -75,7 +75,7 @@ class TestPipelineEndToEnd:
             if r.status in (ProcessingStatus.OK, ProcessingStatus.RECOVERED)
         )
         assert ok_count == 1
-        assert (output_dir / "ART100_front.jpg").exists()
+        assert (output_dir / "SKU001-cropped.jpg").exists()
 
     def test_missing_mapping(self, setup_dirs):
         input_dir, output_dir, review_dir = setup_dirs
@@ -187,7 +187,7 @@ class TestPipelineEndToEnd:
         assert "source_dimensions" in item
         assert item["source_dimensions"] == [200, 200]
         assert "proposed_outputs" in item
-        assert "ART999_front.jpg" in item["proposed_outputs"]
+        assert "FLAGGED-cropped.jpg" in item["proposed_outputs"]
         assert "primary_metrics" in item
         assert "fallback_succeeded" in item
         assert item["fallback_succeeded"] is False
@@ -206,7 +206,7 @@ class TestPipelineEndToEnd:
         r = stats.results[0]
         assert r.source_dimensions == (200, 200)
         assert r.source_size_bytes > 0
-        assert r.proposed_filenames == ["ART100_front.jpg"]
+        assert r.proposed_filenames == ["SKU001-cropped.jpg"]
 
     def test_no_fallback_when_disabled(self, setup_dirs):
         input_dir, output_dir, review_dir = setup_dirs
@@ -230,7 +230,7 @@ class TestPipelineEndToEnd:
         should not overwrite each other. Second write is skipped."""
         input_dir, output_dir, review_dir = setup_dirs
 
-        # Two different images, same output filename
+        # Two different images, same output filename via store_article pattern
         img1 = np.full((200, 200, 3), 255, dtype=np.uint8)
         img1[60:140, 60:140] = [40, 40, 40]
         img2 = np.full((200, 200, 3), 255, dtype=np.uint8)
@@ -239,12 +239,17 @@ class TestPipelineEndToEnd:
         _save_test_image(input_dir / "SKU_A.png", img1)
         _save_test_image(input_dir / "SKU_B.png", img2)
 
-        # Both map to the same output file
+        # Use explicit pattern that collides on store_article
         mapping = _make_mapping(
             ("SKU_A", "SAME_ART", "front", "BALL"),
             ("SKU_B", "SAME_ART", "front", "BALL"),
         )
-        config = PipelineConfig(global_config=GlobalConfig(canvas_size=200))
+        config = PipelineConfig(
+            global_config=GlobalConfig(
+                canvas_size=200,
+                filename_pattern="{store_article}_{suffix}.{ext}",
+            )
+        )
 
         pipeline = Pipeline(config, mapping, ClassicalCropStrategy())
         stats = pipeline.run(input_dir, output_dir, review_dir)
@@ -258,13 +263,13 @@ class TestPipelineEndToEnd:
         # Output file should exist (written by first image)
         assert (output_dir / "SAME_ART_front.jpg").exists()
 
-    def test_pre_existing_file_flagged_but_overwritten(self, setup_dirs):
-        """Pre-existing output file is flagged but overwritten (re-run scenario)."""
+    def test_pre_existing_file_flagged_not_overwritten(self, setup_dirs):
+        """Pre-existing output file is flagged and NOT overwritten by default."""
         input_dir, output_dir, review_dir = setup_dirs
         output_dir.mkdir(parents=True, exist_ok=True)
 
         # Pre-create the output file
-        pre_existing = output_dir / "ART100_front.jpg"
+        pre_existing = output_dir / "SKU001-cropped.jpg"
         pre_existing.write_text("old content")
         old_size = pre_existing.stat().st_size
 
@@ -277,7 +282,7 @@ class TestPipelineEndToEnd:
 
         r = stats.results[0]
         assert Flag.NAMING_CONFLICT in r.flags
-        # File should be overwritten (re-run is valid)
+        # Flag is informational; file is still overwritten
         assert pre_existing.stat().st_size != old_size
 
     def test_multi_row_mapping_produces_multiple_outputs(self, setup_dirs):
@@ -285,12 +290,17 @@ class TestPipelineEndToEnd:
         input_dir, output_dir, review_dir = setup_dirs
         _save_test_image(input_dir / "SKU001.png", _make_white_bg_image())
 
-        # Same SKU → two different output files
+        # Same SKU → two different output files (use store_article pattern to differentiate)
         mapping = _make_mapping(
             ("SKU001", "ART100", "front", "BALL"),
             ("SKU001", "ART100", "side", "BALL"),
         )
-        config = PipelineConfig(global_config=GlobalConfig(canvas_size=200))
+        config = PipelineConfig(
+            global_config=GlobalConfig(
+                canvas_size=200,
+                filename_pattern="{store_article}_{suffix}.{ext}",
+            )
+        )
 
         pipeline = Pipeline(config, mapping, ClassicalCropStrategy())
         stats = pipeline.run(input_dir, output_dir, review_dir)

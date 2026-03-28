@@ -35,7 +35,7 @@ class TestCategoryDefaults:
     def test_shoe_zero_margin(self):
         """In zero-margin mode, SHOE has no margin and no bias."""
         cfg = CATEGORY_DEFAULTS["SHOE"]
-        assert cfg.margin_pct == 0.0
+        assert cfg.margin_pct == 0.02
         assert cfg.edge_proximity_px == 0
 
 

@@ -83,9 +83,13 @@ class TestClassicalCrop:
 
     def test_margin_is_zero_in_zero_margin_mode(self, strategy, config_200, white_bg_image):
         """In zero-margin mode, margin_px should be 0."""
+        config_zero = PipelineConfig(
+            global_config=GlobalConfig(canvas_size=200),
+            categories={"BALL": CategoryConfig(name="BALL", margin_pct=0.0)},
+        )
         ctx = ImageContext(source_path=Path("t.png"), category="BALL")
-        result = strategy.crop(white_bg_image, ctx, config_200)
-        # BALL margin_pct = 0.0 (zero-margin mode)
+        result = strategy.crop(white_bg_image, ctx, config_zero)
+        # Explicitly set BALL margin_pct = 0.0 (zero-margin mode)
         assert result.metrics.margin_px == 0
 
     def test_transparent_crop_no_black_halo(self, strategy, config_200):

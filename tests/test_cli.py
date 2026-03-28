@@ -121,7 +121,7 @@ class TestCli:
             ],
         )
         assert result.exit_code == 0
-        assert (paths["output"] / "ART100_front.jpg").exists()
+        assert (paths["output"] / "SKU001-cropped.jpg").exists()
 
     def test_stats_file_written(self, tmp_path: Path):
         paths = _setup_run(tmp_path)

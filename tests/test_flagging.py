@@ -42,13 +42,14 @@ class TestValidation:
         assert Flag.MASK_TOO_SMALL in flags
 
     def test_bbox_too_large(self, config, context):
+        config_strict = PipelineConfig(global_config=GlobalConfig(canvas_size=200, max_bbox_ratio=0.99))
         mask = np.full((200, 200), 255, dtype=np.uint8)
         result = CropResult(
             mask=mask,
             object_bbox=BBox(0, 0, 200, 200),
             metrics=CropMetrics(fill_ratio=0.5),
         )
-        flags = validate_crop_result(result, (200, 200), context, config)
+        flags = validate_crop_result(result, (200, 200), context, config_strict)
         assert Flag.BBOX_TOO_LARGE in flags
 
     def test_bbox_too_small(self, config, context):
@@ -173,12 +174,12 @@ class TestRelaxedTolerance:
         assert Flag.FILL_RATIO_TOO_LOW in flags
 
     def test_relaxed_widens_fill_max(self, config, context):
-        """Fill ratio 0.80 exceeds BALL max (0.75) strict but passes at 0.8 tolerance."""
+        """Fill ratio below BALL min strict but passes at 0.8 tolerance."""
         # Test that tolerance relaxes the fill_ratio_min threshold.
-        # BALL min=0.85. Fill 0.75: strict flags (0.75 < 0.85), relaxed accepts (0.75 > 0.85*0.8=0.68)
+        # BALL min=0.70. Fill 0.60: strict flags (0.60 < 0.70), relaxed accepts (0.60 > 0.70*0.8=0.56)
         result = CropResult(
             mask=np.zeros((200, 200), dtype=np.uint8),
-            metrics=CropMetrics(fill_ratio=0.75),
+            metrics=CropMetrics(fill_ratio=0.60),
         )
         strict = validate_crop_result(result, (200, 200), context, config, tolerance=1.0)
         relaxed = validate_crop_result(result, (200, 200), context, config, tolerance=0.8)
