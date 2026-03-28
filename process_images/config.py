@@ -7,11 +7,14 @@ makes it parseable from YAML — no parser updates needed.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -155,6 +158,18 @@ def load_config(path: Path) -> PipelineConfig:
         for name, cat_raw in raw["categories"].items():
             cat = _build_category_config(name, cat_raw or {}, config.global_config)
             config.categories[name] = cat
+
+    # Warn about YAML categories that don't match any known default (#27)
+    from .crop.categories import CATEGORY_DEFAULTS
+
+    for name in config.categories:
+        if name not in CATEGORY_DEFAULTS:
+            logger.warning(
+                "YAML category '%s' not in known defaults — typo? "
+                "Known: %s",
+                name,
+                ", ".join(sorted(CATEGORY_DEFAULTS.keys())),
+            )
 
     return config
 
