@@ -67,6 +67,18 @@ def main(
         None, "--workers", "-w",
         help="Number of parallel workers (implies --parallel). Default: CPU count.",
     ),
+    resume: bool = typer.Option(
+        False, "--resume",
+        help="Resume from checkpoint — skip already-processed images",
+    ),
+    force_resume: bool = typer.Option(
+        False, "--force",
+        help="Force resume even if rules YAML changed since checkpoint",
+    ),
+    no_checkpoint: bool = typer.Option(
+        False, "--no-checkpoint",
+        help="Disable checkpoint writing (for clean runs)",
+    ),
 ) -> None:
     """Process supplier product images: crop, resize, rename, and place on canvas."""
     # -- Logging --
@@ -158,12 +170,30 @@ def main(
     else:
         log.info("Sequential mode")
 
+    # -- Checkpoint --
+    from .checkpoint import Checkpoint, hash_file, load_checkpoint, new_checkpoint
+
+    cp: Optional[Checkpoint] = None
+    if not no_checkpoint:
+        cp_path = output_dir / ".checkpoint.json"
+        config_hash = hash_file(rules_file)
+
+        if resume:
+            try:
+                cp = load_checkpoint(cp_path, config_hash, force=force_resume)
+            except ValueError as e:
+                log.error("%s", e)
+                raise typer.Exit(1)
+        else:
+            cp = new_checkpoint(cp_path, config_hash)
+
     # -- Run pipeline --
     from .pipeline import Pipeline
 
     pipeline = Pipeline(config, mapping, primary, fallback)
     stats = pipeline.run(
-        input_dir, output_dir, review_dir, limit=limit, workers=num_workers
+        input_dir, output_dir, review_dir,
+        limit=limit, workers=num_workers, checkpoint=cp,
     )
 
     # -- Output --

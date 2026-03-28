@@ -16,6 +16,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Optional
 
+from .checkpoint import Checkpoint
 from .config import PipelineConfig
 from .crop.base import CropStrategy
 from .io_utils import discover_images, load_image, save_image
@@ -257,6 +258,7 @@ class Pipeline:
         review_dir: Path,
         limit: Optional[int] = None,
         workers: int = 0,
+        checkpoint: Optional[Checkpoint] = None,
     ) -> StatsAccumulator:
         """Discover and process all images in input_dir.
 
@@ -267,6 +269,7 @@ class Pipeline:
             limit: If set, process only the first N images.
             workers: Number of parallel workers.  0 = sequential (default).
                      Use os.cpu_count() for max parallelism.
+            checkpoint: Optional Checkpoint for resume support.
 
         Returns:
             StatsAccumulator with all results.
@@ -279,13 +282,31 @@ class Pipeline:
             images = images[:limit]
             logger.info("Limiting to first %d images", limit)
 
+        # Filter out already-completed images if resuming
+        if checkpoint is not None:
+            before = len(images)
+            images = [
+                img for img in images
+                if not checkpoint.is_done(img.name)
+            ]
+            skipped = before - len(images)
+            if skipped > 0:
+                logger.info(
+                    "Resuming: skipping %d already-processed images, %d remaining",
+                    skipped, len(images),
+                )
+
         output_dir.mkdir(parents=True, exist_ok=True)
         review_dir.mkdir(parents=True, exist_ok=True)
 
         if workers > 1:
-            self._run_parallel(images, output_dir, review_dir, workers)
+            self._run_parallel(images, output_dir, review_dir, workers, checkpoint)
         else:
-            self._run_sequential(images, output_dir, review_dir)
+            self._run_sequential(images, output_dir, review_dir, checkpoint)
+
+        # Final checkpoint flush
+        if checkpoint is not None:
+            checkpoint.flush()
 
         # Write review manifest
         write_review_manifest(self.stats.results, review_dir / "manifest.json")
@@ -293,9 +314,14 @@ class Pipeline:
         return self.stats
 
     def _run_sequential(
-        self, images: list[Path], output_dir: Path, review_dir: Path
+        self,
+        images: list[Path],
+        output_dir: Path,
+        review_dir: Path,
+        checkpoint: Optional[Checkpoint] = None,
     ) -> None:
         """Process images one by one (original behavior)."""
+        flush_interval = 10  # flush checkpoint every N images
         for i, img_path in enumerate(images, 1):
             logger.info(
                 "[%d/%d] Processing %s", i, len(images), img_path.name
@@ -303,12 +329,23 @@ class Pipeline:
             result = self._process_one(img_path, output_dir, review_dir)
             self.stats.record(result)
 
+            if checkpoint is not None:
+                checkpoint.record(
+                    img_path.name,
+                    result.status,
+                    [str(p.name) for p in result.output_paths],
+                    result.flags,
+                )
+                if i % flush_interval == 0:
+                    checkpoint.flush()
+
     def _run_parallel(
         self,
         images: list[Path],
         output_dir: Path,
         review_dir: Path,
         workers: int,
+        checkpoint: Optional[Checkpoint] = None,
     ) -> None:
         """Process images in parallel using a process pool.
 
@@ -357,12 +394,26 @@ class Pipeline:
                     result.flags = [Flag.IMAGE_READ_ERROR]
                     result.error_message = str(exc)
                     self.stats.record(result)
+                    if checkpoint is not None:
+                        checkpoint.record(
+                            img_path.name, result.status,
+                            [], result.flags,
+                        )
                     continue
 
                 # -- Main-thread I/O: write files, record stats --
                 result = self._materialize_result(
                     worker_out, output_dir, review_dir, fn_pattern, out_ext
                 )
+
+                if checkpoint is not None:
+                    checkpoint.record(
+                        img_path.name, result.status,
+                        [str(p.name) for p in result.output_paths],
+                        result.flags,
+                    )
+                    if completed % 10 == 0:
+                        checkpoint.flush()
 
                 if completed % 50 == 0 or completed == total:
                     logger.info(
