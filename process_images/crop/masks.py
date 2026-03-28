@@ -71,10 +71,26 @@ def mask_from_alpha(
     return (alpha > threshold).astype(np.uint8) * 255
 
 
+def rgb_to_lab(image: np.ndarray) -> np.ndarray:
+    """Convert RGB image to LAB color space.
+
+    Use this to pre-compute LAB once and pass it to mask_from_white_bg()
+    and mask_from_white_bg_edge_enhanced() to avoid redundant conversion.
+
+    Args:
+        image: RGB array of shape (H, W, 3), dtype uint8.
+
+    Returns:
+        LAB array of same shape, dtype uint8 (OpenCV LAB scale).
+    """
+    return cv2.cvtColor(image[:, :, :3].astype(np.uint8), cv2.COLOR_RGB2LAB)
+
+
 def mask_from_white_bg(
     image: np.ndarray,
     distance_threshold: float = 12.0,
     bias: float = 0.0,
+    precomputed_lab: np.ndarray | None = None,
 ) -> np.ndarray:
     """Generate mask by weighted LAB-space distance to white.
 
@@ -84,15 +100,44 @@ def mask_from_white_bg(
 
     Pixels farther from white than (distance_threshold + bias) are
     considered foreground.
+
+    Args:
+        precomputed_lab: Optional pre-converted LAB array from rgb_to_lab().
+            Avoids redundant RGB→LAB conversion when detect_background_type
+            already computed it.
     """
-    rgb = image[:, :, :3]
-    dist = _lab_distance_to_white(rgb)
+    if precomputed_lab is not None:
+        dist = _lab_array_distance_to_white(precomputed_lab)
+    else:
+        rgb = image[:, :, :3]
+        dist = _lab_distance_to_white(rgb)
     effective_threshold = max(1.0, distance_threshold + bias)
     return (dist > effective_threshold).astype(np.uint8) * 255
 
 
+def _lab_array_distance_to_white(lab: np.ndarray) -> np.ndarray:
+    """Compute weighted distance to white from a pre-converted LAB array.
+
+    Args:
+        lab: LAB array of shape (H, W, 3) or (N, 3), dtype uint8.
+
+    Returns:
+        Distance array of spatial shape, dtype float32.
+    """
+    original_shape = lab.shape[:-1]
+    flat = lab.reshape(-1, 3).astype(np.float32)
+
+    white_lab = np.array([255.0, 128.0, 128.0])
+    weights = np.array([0.5, 1.0, 1.0])
+
+    diff = (flat - white_lab) * weights
+    dist = np.sqrt(np.sum(diff ** 2, axis=1))
+
+    return dist.reshape(original_shape)
+
+
 def _lab_distance_to_white(pixels: np.ndarray) -> np.ndarray:
-    """Compute weighted LAB distance from pixels to pure white.
+    """Compute weighted LAB distance from RGB pixels to pure white.
 
     Args:
         pixels: RGB array of shape (..., 3), dtype uint8.
@@ -108,7 +153,6 @@ def _lab_distance_to_white(pixels: np.ndarray) -> np.ndarray:
     lab = cv2.cvtColor(flat, cv2.COLOR_RGB2LAB).astype(np.float32)
     lab = lab.reshape(-1, 3)
 
-    # OpenCV LAB: L=[0,255], a=[0,255], b=[0,255]; white = (255, 128, 128)
     white_lab = np.array([255.0, 128.0, 128.0])
     weights = np.array([0.5, 1.0, 1.0])
 
@@ -125,6 +169,7 @@ def mask_from_white_bg_edge_enhanced(
     canny_low: int = 30,
     canny_high: int = 100,
     dilate_iterations: int = 3,
+    precomputed_lab: np.ndarray | None = None,
 ) -> np.ndarray:
     """Generate mask combining LAB distance with Canny edge detection.
 
@@ -138,14 +183,17 @@ def mask_from_white_bg_edge_enhanced(
     4. Flood-fill from edges to create filled contour mask
     5. Union of distance mask and contour mask
 
-    This produces a usable mask even when the object is nearly the same
-    color as the background, as long as there is a visible edge.
+    Args:
+        precomputed_lab: Optional pre-converted LAB array from rgb_to_lab().
     """
     rgb = image[:, :, :3]
     h, w = rgb.shape[:2]
 
-    # 1. Standard distance mask
-    dist = _lab_distance_to_white(rgb)
+    # 1. Standard distance mask (use precomputed LAB if available)
+    if precomputed_lab is not None:
+        dist = _lab_array_distance_to_white(precomputed_lab)
+    else:
+        dist = _lab_distance_to_white(rgb)
     effective_threshold = max(1.0, distance_threshold + bias)
     distance_mask = (dist > effective_threshold).astype(np.uint8) * 255
 

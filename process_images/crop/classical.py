@@ -23,6 +23,7 @@ from .masks import (
     mask_from_complex_bg,
     mask_from_white_bg,
     mask_from_white_bg_edge_enhanced,
+    rgb_to_lab,
 )
 from .morphology import (
     clean_mask,
@@ -137,22 +138,27 @@ class ClassicalCropStrategy(CropStrategy):
     ) -> np.ndarray:
         """Select and run the appropriate mask generator.
 
+        For WHITE_BG images, pre-computes LAB once and reuses it (#21).
         For BALL and CLUB_HEAD_ONLY on white backgrounds, uses
         edge-enhanced masking to detect near-white objects.
         """
         if bg_type == BackgroundType.TRANSPARENT:
             return mask_from_alpha(image, gc.alpha_threshold)
         elif bg_type == BackgroundType.WHITE_BG:
+            # Pre-compute LAB once — avoids redundant RGB→LAB conversion
+            lab = rgb_to_lab(image[:, :, :3])
             if cat_config.name in self._EDGE_ENHANCED_CATEGORIES:
                 return mask_from_white_bg_edge_enhanced(
                     image[:, :, :3],
                     gc.white_distance_threshold,
                     cat_config.threshold_bias,
+                    precomputed_lab=lab,
                 )
             return mask_from_white_bg(
                 image[:, :, :3],
                 gc.white_distance_threshold,
                 cat_config.threshold_bias,
+                precomputed_lab=lab,
             )
         else:
             return mask_from_complex_bg(

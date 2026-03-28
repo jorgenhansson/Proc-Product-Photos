@@ -34,7 +34,7 @@ from ..models import (
 from .base import CropStrategy
 from .categories import resolve_category
 from .finalize import finalize_crop
-from .masks import mask_from_white_bg, mask_from_white_bg_edge_enhanced
+from .masks import mask_from_white_bg, mask_from_white_bg_edge_enhanced, rgb_to_lab
 from .morphology import (
     clean_mask,
     compute_bbox,
@@ -147,6 +147,9 @@ class AIFallbackCropStrategy(CropStrategy):
         rgb = image[:, :, :3]
         flags: list[Flag] = []
 
+        # Pre-compute LAB once for the remask attempt
+        lab = rgb_to_lab(rgb)
+
         # Try edge-enhanced mask with extra-low threshold
         extra_bias = cat_config.threshold_bias - 4.0  # even more sensitive
         mask = mask_from_white_bg_edge_enhanced(
@@ -156,6 +159,7 @@ class AIFallbackCropStrategy(CropStrategy):
             canny_low=20,
             canny_high=80,
             dilate_iterations=4,
+            precomputed_lab=lab,
         )
 
         # Clean mask
