@@ -117,6 +117,67 @@ def generate_side_by_side(
     Image.fromarray(combined).save(path, format="PNG")
 
 
+def encode_side_by_side(
+    original: np.ndarray,
+    mask: Optional[np.ndarray],
+    cropped: Optional[np.ndarray],
+    final: Optional[np.ndarray],
+    panel_size: int = 250,
+) -> bytes:
+    """Generate a labeled 4-panel preview and return as PNG bytes.
+
+    Used by parallel workers to encode previews in-process, avoiding
+    the need to ship large numpy arrays back to the main thread.
+    """
+    import io
+
+    panels: list[np.ndarray] = []
+
+    for img in [original, mask, cropped, final]:
+        if img is None:
+            panel = np.full(
+                (panel_size, panel_size, 3), 200, dtype=np.uint8
+            )
+        else:
+            if img.ndim == 2:
+                panel_img = np.stack([img, img, img], axis=2)
+            elif img.shape[2] == 4:
+                panel_img = img[:, :, :3]
+            else:
+                panel_img = img
+
+            pil = Image.fromarray(panel_img)
+            pil.thumbnail((panel_size, panel_size), Image.LANCZOS)
+            panel = np.array(pil)
+
+            ph, pw = panel.shape[:2]
+            padded = np.full(
+                (panel_size, panel_size, 3), 240, dtype=np.uint8
+            )
+            y_off = (panel_size - ph) // 2
+            x_off = (panel_size - pw) // 2
+            padded[y_off : y_off + ph, x_off : x_off + pw] = panel[:, :, :3]
+            panel = padded
+
+        panels.append(panel)
+
+    combined = np.concatenate(panels, axis=1)
+
+    total_w = combined.shape[1]
+    label_strip = np.full((_LABEL_HEIGHT, total_w, 3), 255, dtype=np.uint8)
+    label_img = Image.fromarray(label_strip)
+    draw = ImageDraw.Draw(label_img)
+    for i, label in enumerate(_PANEL_LABELS):
+        x = i * panel_size + panel_size // 2
+        draw.text((x, 2), label, fill=(0, 0, 0), anchor="mt")
+    label_arr = np.array(label_img)
+    combined = np.concatenate([label_arr, combined], axis=0)
+
+    buf = io.BytesIO()
+    Image.fromarray(combined).save(buf, format="PNG")
+    return buf.getvalue()
+
+
 def write_html_report(
     stats_dict: dict[str, Any],
     results: list[ProcessingResult],

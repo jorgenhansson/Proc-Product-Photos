@@ -20,6 +20,18 @@ class StatsAccumulator:
     total_attempted: int = 0
     results: list[ProcessingResult] = field(default_factory=list)
 
+    @property
+    def total_ok(self) -> int:
+        return sum(1 for r in self.results if r.status == ProcessingStatus.OK)
+
+    @property
+    def total_flagged(self) -> int:
+        return sum(1 for r in self.results if r.status == ProcessingStatus.FLAGGED)
+
+    @property
+    def total_failed(self) -> int:
+        return sum(1 for r in self.results if r.status == ProcessingStatus.FAILED)
+
     def record(self, result: ProcessingResult) -> None:
         """Record the result of processing one image."""
         self.total_attempted += 1

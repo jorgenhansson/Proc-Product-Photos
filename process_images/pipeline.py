@@ -1,10 +1,18 @@
-"""Main pipeline orchestrator: discovers, processes, and routes images."""
+"""Main pipeline orchestrator: discovers, processes, and routes images.
+
+Supports both sequential and parallel execution.  In parallel mode,
+the CPU-heavy work (load → crop → validate → fallback → encode) runs
+in a process pool while the main thread handles I/O, stats, and
+review artifacts sequentially.
+"""
 
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Optional
 
@@ -25,12 +33,207 @@ from .validators import validate_crop_result
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Top-level worker function (must be picklable → module-level, not a method)
+# ---------------------------------------------------------------------------
+
+def _process_worker(
+    img_path: Path,
+    config: PipelineConfig,
+    mapping_rows_by_sku: dict,
+    fallback_enabled: bool,
+) -> dict:
+    """Self-contained worker: load → crop → validate → fallback → encode.
+
+    Runs in a child process.  Returns a plain dict (no numpy arrays)
+    with everything the main thread needs to write files and record stats.
+
+    The encoded JPEG/PNG bytes are returned so the main thread only needs
+    to write them to disk — no image processing on the main thread.
+    """
+    import time as _time
+    import numpy as np
+    from .config import PipelineConfig
+    from .crop.classical import ClassicalCropStrategy
+    from .crop.ai_fallback import AIFallbackCropStrategy
+    from .io_utils import load_image, encode_image
+    from .models import (
+        Flag, ImageContext, CropMetrics, ProcessingStatus, BackgroundType,
+    )
+    from .validators import validate_crop_result
+
+    t0 = _time.perf_counter()
+    sku = img_path.stem
+
+    out: dict = {
+        "source_path": img_path,
+        "status": ProcessingStatus.FAILED,
+        "flags": [],
+        "category": "",
+        "background_type": None,
+        "source_dimensions": (0, 0),
+        "source_size_bytes": 0,
+        "crop_metrics": None,
+        "fallback_metrics": None,
+        "fallback_attempted": False,
+        "fallback_time_s": 0.0,
+        "crop_time_s": 0.0,
+        "processing_time_s": 0.0,
+        "error_message": "",
+        "proposed_filenames": [],
+        # Encoded image bytes (JPEG/PNG) ready for disk write
+        "final_image_bytes": None,
+        # Review artifacts (only for flagged/failed)
+        "review_original_copy": False,
+        "review_preview_bytes": None,
+    }
+
+    try:
+        out["source_size_bytes"] = img_path.stat().st_size
+    except OSError:
+        pass
+
+    # -- Mapping lookup --
+    rows_data = mapping_rows_by_sku.get(sku) or mapping_rows_by_sku.get(img_path.name)
+    if not rows_data:
+        out["flags"] = [Flag.MISSING_MAPPING]
+        out["status"] = ProcessingStatus.FLAGGED
+        out["review_original_copy"] = True
+        out["processing_time_s"] = _time.perf_counter() - t0
+        return out
+
+    # Reconstruct MappingRow objects
+    from .models import MappingRow
+    rows = [MappingRow(**rd) for rd in rows_data]
+
+    category = rows[0].category
+    out["category"] = category
+
+    gc = config.global_config
+    fn_pattern = gc.filename_pattern
+    out_ext = gc.output_format.lower().replace("jpeg", "jpg")
+    source_stem = img_path.stem
+    out["proposed_filenames"] = [
+        row.output_filename_for_source(source_stem, fn_pattern, out_ext)
+        for row in rows
+    ]
+
+    # -- Load image --
+    image = load_image(img_path)
+    if image is None:
+        out["flags"] = [Flag.IMAGE_READ_ERROR]
+        out["status"] = ProcessingStatus.FAILED
+        out["error_message"] = "Failed to load image"
+        out["processing_time_s"] = _time.perf_counter() - t0
+        return out
+
+    out["source_dimensions"] = (image.shape[1], image.shape[0])
+
+    context = ImageContext(
+        source_path=img_path,
+        mapping_rows=rows,
+        category=category,
+    )
+
+    # -- Primary crop --
+    primary = ClassicalCropStrategy()
+    t_crop = _time.perf_counter()
+    crop_result = primary.crop(image, context, config)
+    out["crop_time_s"] = _time.perf_counter() - t_crop
+    out["background_type"] = crop_result.background_type
+    context.background_type = crop_result.background_type
+
+    # -- Validate --
+    validation_flags = validate_crop_result(
+        crop_result, image.shape, context, config
+    )
+    all_flags = list(dict.fromkeys(
+        crop_result.flags + validation_flags
+    ))
+    out["crop_metrics"] = crop_result.metrics
+
+    blocking_flags = [f for f in all_flags if f != Flag.NAMING_CONFLICT]
+    primary_ok = len(blocking_flags) == 0 and crop_result.final_image is not None
+
+    if primary_ok:
+        out["status"] = ProcessingStatus.OK
+        out["flags"] = all_flags
+        out["final_image_bytes"] = encode_image(
+            crop_result.final_image, quality=gc.jpeg_quality, output_format=out_ext
+        )
+    elif fallback_enabled:
+        # -- Fallback --
+        out["fallback_attempted"] = True
+        context.prior_mask = crop_result.mask
+        context.primary_flags = blocking_flags
+        context.primary_result = crop_result
+
+        fallback = AIFallbackCropStrategy()
+        t_fb = _time.perf_counter()
+        fb_result = fallback.crop(image, context, config)
+        out["fallback_time_s"] = _time.perf_counter() - t_fb
+        out["fallback_metrics"] = fb_result.metrics
+
+        fb_validation = validate_crop_result(
+            fb_result, image.shape, context, config,
+            tolerance=config.fallback.validation_tolerance,
+        )
+        fb_all_flags = list(dict.fromkeys(fb_result.flags + fb_validation))
+
+        if len(fb_all_flags) == 0 and fb_result.final_image is not None:
+            out["status"] = ProcessingStatus.RECOVERED
+            out["flags"] = all_flags
+            out["final_image_bytes"] = encode_image(
+                fb_result.final_image, quality=gc.jpeg_quality, output_format=out_ext
+            )
+        else:
+            out["status"] = ProcessingStatus.FLAGGED
+            out["flags"] = all_flags + [f for f in fb_all_flags if f not in all_flags]
+            out["review_original_copy"] = True
+            # Generate preview in-process (avoids shipping numpy arrays)
+            try:
+                from .reporting import encode_side_by_side
+                out["review_preview_bytes"] = encode_side_by_side(
+                    image[:, :, :3] if image.ndim == 3 and image.shape[2] >= 3 else image,
+                    crop_result.mask, crop_result.cropped_image, crop_result.final_image,
+                )
+            except Exception:
+                pass
+    else:
+        out["status"] = ProcessingStatus.FLAGGED
+        out["flags"] = all_flags
+        out["review_original_copy"] = True
+        try:
+            from .reporting import encode_side_by_side
+            out["review_preview_bytes"] = encode_side_by_side(
+                image[:, :, :3] if image.ndim == 3 and image.shape[2] >= 3 else image,
+                crop_result.mask, crop_result.cropped_image, crop_result.final_image,
+            )
+        except Exception:
+            pass
+
+    out["processing_time_s"] = _time.perf_counter() - t0
+    return out
+
+
+def _serialize_mapping(mapping: MappingLookup) -> dict[str, list[dict]]:
+    """Convert MappingLookup to a plain dict of dicts for pickling.
+
+    Workers receive this instead of the full MappingLookup object.
+    Keys are both SKU stem and full filename for flexible matching.
+    """
+    from dataclasses import asdict
+    result: dict[str, list[dict]] = {}
+    for sku, rows in mapping.rows_by_sku.items():
+        result[sku] = [asdict(row) for row in rows]
+    return result
+
+
 class Pipeline:
     """Orchestrates the full image processing pipeline.
 
-    Runs the primary (classical) crop strategy on every image, validates
-    the result, optionally invokes a fallback strategy for flagged images,
-    and writes outputs, review artifacts, and statistics.
+    Supports sequential (default) and parallel execution modes.
+    In parallel mode, CPU-heavy work runs in a process pool.
     """
 
     def __init__(
@@ -53,6 +256,7 @@ class Pipeline:
         output_dir: Path,
         review_dir: Path,
         limit: Optional[int] = None,
+        workers: int = 0,
     ) -> StatsAccumulator:
         """Discover and process all images in input_dir.
 
@@ -61,6 +265,8 @@ class Pipeline:
             output_dir: Directory for successfully processed images.
             review_dir: Directory for flagged/failed images and review data.
             limit: If set, process only the first N images.
+            workers: Number of parallel workers.  0 = sequential (default).
+                     Use os.cpu_count() for max parallelism.
 
         Returns:
             StatsAccumulator with all results.
@@ -76,6 +282,20 @@ class Pipeline:
         output_dir.mkdir(parents=True, exist_ok=True)
         review_dir.mkdir(parents=True, exist_ok=True)
 
+        if workers > 1:
+            self._run_parallel(images, output_dir, review_dir, workers)
+        else:
+            self._run_sequential(images, output_dir, review_dir)
+
+        # Write review manifest
+        write_review_manifest(self.stats.results, review_dir / "manifest.json")
+
+        return self.stats
+
+    def _run_sequential(
+        self, images: list[Path], output_dir: Path, review_dir: Path
+    ) -> None:
+        """Process images one by one (original behavior)."""
         for i, img_path in enumerate(images, 1):
             logger.info(
                 "[%d/%d] Processing %s", i, len(images), img_path.name
@@ -83,10 +303,142 @@ class Pipeline:
             result = self._process_one(img_path, output_dir, review_dir)
             self.stats.record(result)
 
-        # Write review manifest
-        write_review_manifest(self.stats.results, review_dir / "manifest.json")
+    def _run_parallel(
+        self,
+        images: list[Path],
+        output_dir: Path,
+        review_dir: Path,
+        workers: int,
+    ) -> None:
+        """Process images in parallel using a process pool.
 
-        return self.stats
+        The CPU-heavy work (load, crop, validate, fallback, encode) runs
+        in child processes.  The main thread handles file writes, stats
+        recording, and collision detection sequentially.
+        """
+        logger.info(
+            "Parallel mode: %d workers for %d images", workers, len(images)
+        )
+
+        # Serialize mapping for workers (dicts of dicts, fully picklable)
+        mapping_data = _serialize_mapping(self.mapping)
+        fallback_enabled = bool(self.fallback and self.config.fallback.enabled)
+        gc = self.config.global_config
+        fn_pattern = gc.filename_pattern
+        out_ext = gc.output_format.lower().replace("jpeg", "jpg")
+
+        completed = 0
+        total = len(images)
+
+        with ProcessPoolExecutor(max_workers=workers) as pool:
+            futures = {
+                pool.submit(
+                    _process_worker,
+                    img_path,
+                    self.config,
+                    mapping_data,
+                    fallback_enabled,
+                ): img_path
+                for img_path in images
+            }
+
+            for future in as_completed(futures):
+                completed += 1
+                img_path = futures[future]
+                try:
+                    worker_out = future.result()
+                except Exception as exc:
+                    logger.error(
+                        "[%d/%d] Worker crashed for %s: %s",
+                        completed, total, img_path.name, exc,
+                    )
+                    result = ProcessingResult(source_path=img_path)
+                    result.status = ProcessingStatus.FAILED
+                    result.flags = [Flag.IMAGE_READ_ERROR]
+                    result.error_message = str(exc)
+                    self.stats.record(result)
+                    continue
+
+                # -- Main-thread I/O: write files, record stats --
+                result = self._materialize_result(
+                    worker_out, output_dir, review_dir, fn_pattern, out_ext
+                )
+
+                if completed % 50 == 0 or completed == total:
+                    logger.info(
+                        "[%d/%d] completed (ok=%d flagged=%d failed=%d)",
+                        completed, total,
+                        self.stats.total_ok,
+                        self.stats.total_flagged,
+                        self.stats.total_failed,
+                    )
+
+    def _materialize_result(
+        self,
+        wo: dict,
+        output_dir: Path,
+        review_dir: Path,
+        fn_pattern: str,
+        out_ext: str,
+    ) -> ProcessingResult:
+        """Convert worker output dict to ProcessingResult and write files.
+
+        Runs on the main thread — handles file I/O and collision detection.
+        """
+        gc = self.config.global_config
+        result = ProcessingResult(source_path=wo["source_path"])
+        result.status = wo["status"]
+        result.flags = wo["flags"]
+        result.category = wo["category"]
+        result.background_type = wo["background_type"]
+        result.source_dimensions = wo["source_dimensions"]
+        result.source_size_bytes = wo["source_size_bytes"]
+        result.crop_metrics = wo["crop_metrics"]
+        result.fallback_metrics = wo["fallback_metrics"]
+        result.fallback_attempted = wo["fallback_attempted"]
+        result.fallback_time_s = wo["fallback_time_s"]
+        result.crop_time_s = wo["crop_time_s"]
+        result.processing_time_s = wo["processing_time_s"]
+        result.error_message = wo["error_message"]
+        result.proposed_filenames = wo["proposed_filenames"]
+
+        img_path = wo["source_path"]
+        source_stem = img_path.stem
+
+        # -- Write output image --
+        if wo["final_image_bytes"] is not None:
+            for fname in wo["proposed_filenames"]:
+                if fname in self._seen_outputs:
+                    if Flag.NAMING_CONFLICT not in result.flags:
+                        result.flags.append(Flag.NAMING_CONFLICT)
+                    logger.warning("Skipping duplicate output: %s", fname)
+                    continue
+                elif (output_dir / fname).exists() and not gc.overwrite:
+                    if Flag.NAMING_CONFLICT not in result.flags:
+                        result.flags.append(Flag.NAMING_CONFLICT)
+                    logger.warning("Pre-existing conflict: %s", fname)
+                    continue
+                out_path = output_dir / fname
+                out_path.write_bytes(wo["final_image_bytes"])
+                self._seen_outputs.add(fname)
+                result.output_paths.append(out_path)
+
+        # -- Write review artifacts --
+        if wo["review_original_copy"]:
+            try:
+                shutil.copy2(img_path, review_dir / img_path.name)
+            except Exception:
+                pass
+
+        if wo["review_preview_bytes"] is not None:
+            preview_path = review_dir / f"{img_path.stem}_preview.png"
+            try:
+                preview_path.write_bytes(wo["review_preview_bytes"])
+            except Exception:
+                pass
+
+        self.stats.record(result)
+        return result
 
     def _process_one(
         self,
@@ -250,6 +602,10 @@ class Pipeline:
             save_image(final_image, out_path, quality=quality, output_format=out_ext)
             self._seen_outputs.add(fname)
             result.output_paths.append(out_path)
+
+    # ------------------------------------------------------------------
+    # Sequential-mode methods (unchanged from original)
+    # ------------------------------------------------------------------
 
     def _save_review(
         self, img_path, original_image, crop_result, review_dir

@@ -128,6 +128,44 @@ def save_image(
         pil_img.save(path, quality=quality)
 
 
+def encode_image(
+    img: np.ndarray,
+    quality: int = 95,
+    output_format: str = "jpg",
+) -> bytes:
+    """Encode numpy array to image bytes without writing to disk.
+
+    Used by parallel workers to avoid shipping numpy arrays between
+    processes — encode in the worker, write bytes on the main thread.
+    """
+    import io
+
+    pil_img = Image.fromarray(img)
+    fmt = output_format.lower().replace("jpeg", "jpg").replace("tif", "tiff")
+
+    if fmt in ("jpg", "webp"):
+        if pil_img.mode == "RGBA":
+            bg = Image.new("RGB", pil_img.size, (255, 255, 255))
+            bg.paste(pil_img, mask=pil_img.split()[3])
+            pil_img = bg
+        elif pil_img.mode != "RGB":
+            pil_img = pil_img.convert("RGB")
+
+    buf = io.BytesIO()
+    if fmt == "jpg":
+        pil_img.save(buf, format="JPEG", quality=quality, optimize=True)
+    elif fmt == "webp":
+        pil_img.save(buf, format="WEBP", quality=quality)
+    elif fmt == "png":
+        pil_img.save(buf, format="PNG", optimize=True)
+    elif fmt == "tiff":
+        pil_img.save(buf, format="TIFF")
+    else:
+        pil_img.save(buf, quality=quality)
+
+    return buf.getvalue()
+
+
 def save_jpeg(
     img: np.ndarray, path: Path, quality: int = 95
 ) -> None:

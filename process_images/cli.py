@@ -59,6 +59,14 @@ def main(
     limit: Optional[int] = typer.Option(
         None, "--limit", "-n", help="Process only the first N images"
     ),
+    parallel: bool = typer.Option(
+        False, "--parallel", "-p",
+        help="Enable parallel processing using all available CPU cores",
+    ),
+    workers: Optional[int] = typer.Option(
+        None, "--workers", "-w",
+        help="Number of parallel workers (implies --parallel). Default: CPU count.",
+    ),
 ) -> None:
     """Process supplier product images: crop, resize, rename, and place on canvas."""
     # -- Logging --
@@ -134,11 +142,29 @@ def main(
     primary = ClassicalCropStrategy()
     fallback = AIFallbackCropStrategy() if config.fallback.enabled else None
 
+    # -- Determine parallelism --
+    import os
+    num_workers = 0  # sequential
+    if workers is not None and workers > 1:
+        num_workers = workers
+    elif parallel:
+        num_workers = max(1, os.cpu_count() or 1)
+        # Leave one core free for the main thread and OS
+        if num_workers > 2:
+            num_workers -= 1
+
+    if num_workers > 1:
+        log.info("Parallel mode: %d workers", num_workers)
+    else:
+        log.info("Sequential mode")
+
     # -- Run pipeline --
     from .pipeline import Pipeline
 
     pipeline = Pipeline(config, mapping, primary, fallback)
-    stats = pipeline.run(input_dir, output_dir, review_dir, limit=limit)
+    stats = pipeline.run(
+        input_dir, output_dir, review_dir, limit=limit, workers=num_workers
+    )
 
     # -- Output --
     summary = stats.to_console()

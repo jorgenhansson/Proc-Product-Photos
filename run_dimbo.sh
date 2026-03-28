@@ -58,6 +58,8 @@ Image options:
   --overwrite         Overwrite existing output files
 
 Processing:
+  -p, --parallel      Enable parallel processing (auto-detects CPU cores)
+  -w, --workers N     Set number of parallel workers (implies --parallel)
   -n, --limit N       Process only the first N images (for testing)
   -v, --verbose       Enable debug logging
   --dry-run           Validate inputs and mapping, then exit
@@ -69,6 +71,8 @@ Other:
 
 Examples:
   ./run_dimbo.sh                              Full batch, 1000x1000 JPG
+  ./run_dimbo.sh --parallel                   Parallel (auto-detect cores)
+  ./run_dimbo.sh -w 4                         Parallel with 4 workers
   ./run_dimbo.sh -s 800 -f png                800x800 PNG output
   ./run_dimbo.sh --limit 10 -v                Quick test, verbose
   ./run_dimbo.sh --source /path/to/images     Custom source directory
@@ -114,6 +118,10 @@ while [[ $# -gt 0 ]]; do
             REGEN=true; shift ;;
         --no-clean)
             CLEAN=false; shift ;;
+        -p|--parallel)
+            PASSTHROUGH_ARGS+=("--parallel"); shift ;;
+        -w|--workers)
+            PASSTHROUGH_ARGS+=("--workers" "$2"); shift 2 ;;
         -n|--limit|-v|--verbose|--dry-run)
             # These pass through directly to the Python CLI
             PASSTHROUGH_ARGS+=("$1"); shift ;;
