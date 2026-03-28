@@ -160,6 +160,34 @@ class StatsAccumulator:
         with open(path, "w", encoding="utf-8") as f:
             json.dump(self.to_dict(), f, indent=2, ensure_ascii=False)
 
+    def results_to_json(self, path: Path) -> None:
+        """Write per-image results to a JSON file for diff analysis.
+
+        Each entry includes source filename, status, category, flags,
+        fill ratio, and crop metrics — everything needed to compare
+        two runs and identify improvements/regressions.
+        """
+        entries = {}
+        for r in self.results:
+            name = r.source_path.name
+            entry: dict = {
+                "status": r.status.value,
+                "category": r.category,
+                "flags": [f.value for f in r.flags],
+                "fallback_attempted": r.fallback_attempted,
+            }
+            if r.crop_metrics:
+                entry["fill_ratio"] = round(r.crop_metrics.fill_ratio, 4)
+                entry["crop_area_ratio"] = round(r.crop_metrics.crop_area_ratio, 4)
+                entry["component_count"] = r.crop_metrics.component_count
+            if r.background_type:
+                entry["background_type"] = r.background_type.value
+            entries[name] = entry
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(entries, f, indent=2, ensure_ascii=False)
+
     def to_console(self) -> str:
         """Format statistics as a human-readable console summary."""
         d = self.to_dict()

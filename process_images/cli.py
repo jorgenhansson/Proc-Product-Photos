@@ -47,6 +47,9 @@ def main(
     stats_file: Optional[Path] = typer.Option(
         None, "--stats", help="Output JSON statistics file"
     ),
+    results_file: Optional[Path] = typer.Option(
+        None, "--results", help="Output per-image results JSON (for diff analysis)"
+    ),
     html_report: Optional[Path] = typer.Option(
         None, "--html-report", help="Output HTML report file"
     ),
@@ -203,6 +206,10 @@ def main(
     if stats_file:
         stats.to_json(stats_file)
         log.info("Statistics written to %s", stats_file)
+
+    if results_file:
+        stats.results_to_json(results_file)
+        log.info("Per-image results written to %s", results_file)
 
     if html_report:
         from .reporting import write_html_report
