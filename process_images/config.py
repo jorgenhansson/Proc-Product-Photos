@@ -282,8 +282,12 @@ def _build_category_config(
     # Merge: inherited < raw < name
     merged = {**inherited, **raw, "name": name}
 
-    # Filter to valid CategoryConfig fields only
-    valid = {k: v for k, v in merged.items() if k in _CATEGORY_FIELDS}
+    # Filter to valid CategoryConfig fields only and coerce types
+    _cat_field_types = {f.name: f.type for f in fields(CategoryConfig)}
+    valid = {}
+    for k, v in merged.items():
+        if k in _CATEGORY_FIELDS:
+            valid[k] = _coerce_value(k, v, _cat_field_types.get(k))
     cfg = CategoryConfig(**valid)
 
     # Apply fill ratio list if provided

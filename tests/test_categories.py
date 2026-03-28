@@ -144,3 +144,131 @@ class TestConfigLoading:
         assert cat.adaptive_block_size == 77
         assert cat.adaptive_c == 3.14
         assert cat.name == "UNKNOWN"
+
+    def test_unknown_yaml_category_warns(self, tmp_path, caplog):
+        """YAML category not in CATEGORY_DEFAULTS should produce a warning (#27)."""
+        import logging
+        yaml_path = tmp_path / "rules.yaml"
+        yaml_path.write_text(
+            "categories:\n"
+            "  BOLL:\n"
+            "    margin_pct: 0.05\n"
+            "  BALL:\n"
+            "    margin_pct: 0.08\n"
+            "  SHEO:\n"
+            "    margin_pct: 0.02\n",
+            encoding="utf-8",
+        )
+        with caplog.at_level(logging.WARNING, logger="process_images.config"):
+            config = load_config(yaml_path)
+
+        # BOLL and SHEO should warn, BALL should not
+        warnings = [r.message for r in caplog.records]
+        assert any("BOLL" in w for w in warnings), "Should warn about BOLL"
+        assert any("SHEO" in w for w in warnings), "Should warn about SHEO"
+        assert not any("'BALL'" in w for w in warnings), "Should NOT warn about BALL"
+        # All three should still be loaded
+        assert "BOLL" in config.categories
+        assert "BALL" in config.categories
+        assert "SHEO" in config.categories
+
+    def test_known_yaml_category_no_warning(self, tmp_path, caplog):
+        """All known categories should produce no warnings."""
+        import logging
+        yaml_path = tmp_path / "rules.yaml"
+        yaml_path.write_text(
+            "categories:\n"
+            "  BALL:\n"
+            "    margin_pct: 0.1\n"
+            "  SHOE:\n"
+            "    margin_pct: 0.05\n",
+            encoding="utf-8",
+        )
+        with caplog.at_level(logging.WARNING, logger="process_images.config"):
+            load_config(yaml_path)
+
+        config_warnings = [r for r in caplog.records if "not in known defaults" in r.message]
+        assert len(config_warnings) == 0
+
+
+class TestTypeCoercion:
+    """Tests for YAML type coercion in _apply_dataclass (#23)."""
+
+    def test_string_to_int(self, tmp_path):
+        yaml_path = tmp_path / "rules.yaml"
+        yaml_path.write_text('global:\n  canvas_size: "1000"\n')
+        config = load_config(yaml_path)
+        assert config.global_config.canvas_size == 1000
+        assert isinstance(config.global_config.canvas_size, int)
+
+    def test_float_to_int(self, tmp_path):
+        yaml_path = tmp_path / "rules.yaml"
+        yaml_path.write_text("global:\n  jpeg_quality: 90.5\n")
+        config = load_config(yaml_path)
+        assert config.global_config.jpeg_quality == 90
+        assert isinstance(config.global_config.jpeg_quality, int)
+
+    def test_int_to_float(self, tmp_path):
+        yaml_path = tmp_path / "rules.yaml"
+        yaml_path.write_text("global:\n  edge_whiteness_threshold: 85\n")
+        config = load_config(yaml_path)
+        assert config.global_config.edge_whiteness_threshold == 85.0
+        assert isinstance(config.global_config.edge_whiteness_threshold, float)
+
+    def test_string_to_bool(self, tmp_path):
+        yaml_path = tmp_path / "rules.yaml"
+        yaml_path.write_text('global:\n  overwrite: "yes"\n')
+        config = load_config(yaml_path)
+        assert config.global_config.overwrite is True
+        assert isinstance(config.global_config.overwrite, bool)
+
+    def test_string_to_int_in_fallback(self, tmp_path):
+        yaml_path = tmp_path / "rules.yaml"
+        yaml_path.write_text('fallback:\n  grabcut_iterations: "7"\n')
+        config = load_config(yaml_path)
+        assert config.fallback.grabcut_iterations == 7
+        assert isinstance(config.fallback.grabcut_iterations, int)
+
+    def test_invalid_coercion_warns_and_keeps_value(self, tmp_path, caplog):
+        import logging
+        yaml_path = tmp_path / "rules.yaml"
+        yaml_path.write_text('global:\n  canvas_size: big\n')
+        with caplog.at_level(logging.WARNING, logger="process_images.config"):
+            config = load_config(yaml_path)
+
+        assert config.global_config.canvas_size == "big"  # kept as-is
+        assert any("Cannot coerce" in r.message for r in caplog.records)
+
+    def test_bool_field_stays_bool(self, tmp_path):
+        """YAML native bool should stay bool, not be coerced to int."""
+        yaml_path = tmp_path / "rules.yaml"
+        yaml_path.write_text("fallback:\n  enabled: false\n")
+        config = load_config(yaml_path)
+        assert config.fallback.enabled is False
+        assert isinstance(config.fallback.enabled, bool)
+
+    def test_category_float_coercion(self, tmp_path):
+        """Integer value for a float field in category config should be coerced."""
+        yaml_path = tmp_path / "rules.yaml"
+        yaml_path.write_text("categories:\n  BALL:\n    margin_pct: 5\n")
+        config = load_config(yaml_path)
+        ball = config.categories["BALL"]
+        assert ball.margin_pct == 5.0
+        assert isinstance(ball.margin_pct, float)
+
+    def test_normal_types_unchanged(self, tmp_path):
+        """Correctly typed YAML values should pass through unchanged."""
+        yaml_path = tmp_path / "rules.yaml"
+        yaml_path.write_text(
+            "global:\n"
+            "  canvas_size: 500\n"
+            "  jpeg_quality: 85\n"
+            "  edge_whiteness_threshold: 0.9\n"
+            "  overwrite: true\n"
+        )
+        config = load_config(yaml_path)
+        assert config.global_config.canvas_size == 500
+        assert isinstance(config.global_config.canvas_size, int)
+        assert config.global_config.jpeg_quality == 85
+        assert config.global_config.edge_whiteness_threshold == 0.9
+        assert config.global_config.overwrite is True
