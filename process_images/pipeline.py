@@ -270,6 +270,9 @@ class Pipeline:
         limit: Optional[int] = None,
         workers: int = 0,
         checkpoint: Optional[Checkpoint] = None,
+        incremental: bool = False,
+        reference_mtimes: Optional[list[float]] = None,
+        force_categories: Optional[set[str]] = None,
     ) -> StatsAccumulator:
         """Discover and process all images in input_dir.
 
@@ -281,6 +284,10 @@ class Pipeline:
             workers: Number of parallel workers.  0 = sequential (default).
                      Use os.cpu_count() for max parallelism.
             checkpoint: Optional Checkpoint for resume support.
+            incremental: If True, skip images whose output is newer than input.
+            reference_mtimes: Mtimes of rules/mapping files. If any output is
+                older than these, reprocess (config changed).
+            force_categories: Categories to always reprocess in incremental mode.
 
         Returns:
             StatsAccumulator with all results.
@@ -318,6 +325,20 @@ class Pipeline:
 
         output_dir.mkdir(parents=True, exist_ok=True)
         review_dir.mkdir(parents=True, exist_ok=True)
+
+        # Incremental: skip images whose output is fresh
+        if incremental:
+            before = len(images)
+            images = self._filter_incremental(
+                images, output_dir, reference_mtimes or [],
+                force_categories or set(),
+            )
+            skipped = before - len(images)
+            if skipped > 0:
+                logger.info(
+                    "Incremental: skipping %d up-to-date images, %d to process",
+                    skipped, len(images),
+                )
 
         if workers > 1:
             self._run_parallel(images, output_dir, review_dir, workers, checkpoint)
@@ -695,6 +716,82 @@ class Pipeline:
             save_image(final_image, out_path, quality=quality, output_format=out_ext)
             self._seen_outputs.add(fname)
             result.output_paths.append(out_path)
+
+    # ------------------------------------------------------------------
+    # Incremental filtering
+    # ------------------------------------------------------------------
+
+    def _filter_incremental(
+        self,
+        images: list[Path],
+        output_dir: Path,
+        reference_mtimes: list[float],
+        force_categories: set[str],
+    ) -> list[Path]:
+        """Filter out images whose output already exists and is up-to-date.
+
+        An image is skipped if ALL of these are true:
+        1. Its output file exists
+        2. The output is newer than the input image
+        3. The output is newer than all reference files (rules, mapping)
+        4. Its category is not in force_categories
+
+        Args:
+            images: All candidate input images.
+            output_dir: Where output files live.
+            reference_mtimes: Mtimes of rules.yaml, mapping.csv etc.
+                If any output is older than these, it's stale.
+            force_categories: Categories to always reprocess.
+        """
+        gc = self.config.global_config
+        fn_pattern = gc.filename_pattern
+        out_ext = gc.output_format.lower().replace("jpeg", "jpg")
+        max_ref_mtime = max(reference_mtimes) if reference_mtimes else 0.0
+
+        to_process: list[Path] = []
+        for img_path in images:
+            sku = img_path.stem
+
+            # Check if category is forced
+            if force_categories:
+                rows = self.mapping.lookup(sku)
+                if rows and rows[0].category.upper() in force_categories:
+                    to_process.append(img_path)
+                    continue
+
+            # Find expected output file(s)
+            rows = self.mapping.lookup(sku)
+            if not rows:
+                to_process.append(img_path)  # no mapping = must process to flag it
+                continue
+
+            all_fresh = True
+            for row in rows:
+                out_name = row.output_filename_for_source(
+                    img_path.stem, fn_pattern, out_ext
+                )
+                out_path = output_dir / out_name
+                if not out_path.exists():
+                    all_fresh = False
+                    break
+
+                out_mtime = out_path.stat().st_mtime
+                input_mtime = img_path.stat().st_mtime
+
+                # Stale if output is older than input
+                if out_mtime < input_mtime:
+                    all_fresh = False
+                    break
+
+                # Stale if output is older than reference files (rules/mapping changed)
+                if max_ref_mtime > 0 and out_mtime < max_ref_mtime:
+                    all_fresh = False
+                    break
+
+            if not all_fresh:
+                to_process.append(img_path)
+
+        return to_process
 
     # ------------------------------------------------------------------
     # Quality gate

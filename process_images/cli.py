@@ -93,6 +93,14 @@ def main(
         False, "--no-quality-gate",
         help="Disable quality gate checks entirely",
     ),
+    incremental: bool = typer.Option(
+        False, "--incremental",
+        help="Skip images whose output is newer than input and config files",
+    ),
+    force_category: Optional[list[str]] = typer.Option(
+        None, "--force-category",
+        help="Reprocess all images in these categories (use with --incremental)",
+    ),
 ) -> None:
     """Process supplier product images: crop, resize, rename, and place on canvas."""
     # -- Logging --
@@ -215,6 +223,16 @@ def main(
         else:
             cp = new_checkpoint(cp_path, config_hash)
 
+    # -- Incremental reference mtimes --
+    ref_mtimes: list[float] = []
+    if incremental:
+        ref_mtimes.append(rules_file.stat().st_mtime)
+        ref_mtimes.append(mapping_file.stat().st_mtime)
+
+    force_cats: set[str] | None = None
+    if force_category:
+        force_cats = {c.upper() for c in force_category}
+
     # -- Run pipeline --
     from .pipeline import Pipeline, QualityGateError
 
@@ -223,6 +241,8 @@ def main(
         stats = pipeline.run(
             input_dir, output_dir, review_dir,
             limit=limit, workers=num_workers, checkpoint=cp,
+            incremental=incremental, reference_mtimes=ref_mtimes,
+            force_categories=force_cats,
         )
     except QualityGateError as e:
         stats = pipeline.stats
