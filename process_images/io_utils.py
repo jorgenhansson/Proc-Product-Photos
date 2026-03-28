@@ -11,7 +11,7 @@ from PIL import Image, ImageOps
 
 logger = logging.getLogger(__name__)
 
-IMAGE_EXTENSIONS = {".tif", ".tiff", ".png", ".jpg", ".jpeg"}
+IMAGE_EXTENSIONS = {".tif", ".tiff", ".png", ".jpg", ".jpeg", ".bmp", ".webp"}
 
 
 def discover_images(input_dir: Path) -> list[Path]:
