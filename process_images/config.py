@@ -184,16 +184,75 @@ _CATEGORY_FIELDS = {f.name for f in fields(CategoryConfig)}
 def _apply_dataclass(raw: dict[str, Any], obj: object) -> None:
     """Apply YAML dict values to a dataclass instance.
 
-    Only sets attributes that exist on the dataclass. Handles
-    background_color tuple specially.
+    Only sets attributes that exist on the dataclass.  Coerces values
+    to the field's declared type to catch YAML type mismatches early
+    (e.g. ``canvas_size: "1000"`` → int, ``margin_pct: 5`` → float).
+
+    Logs a warning on coercion failure instead of crashing.
     """
     for f in fields(obj.__class__):
         if f.name not in raw:
             continue
         value = raw[f.name]
+
+        # Special cases
         if f.name == "background_color":
             value = tuple(value)
+            setattr(obj, f.name, value)
+            continue
+
+        # Type coercion based on field annotation
+        value = _coerce_value(f.name, value, f.type)
         setattr(obj, f.name, value)
+
+
+def _coerce_value(name: str, value: Any, declared_type: Any) -> Any:
+    """Coerce a YAML value to the declared dataclass field type.
+
+    Handles int, float, bool, str, and leaves complex types unchanged.
+    Logs a warning if coercion fails and returns the original value.
+    """
+    # Resolve string annotations to actual types
+    type_map = {"int": int, "float": float, "bool": bool, "str": str}
+    target = type_map.get(declared_type) if isinstance(declared_type, str) else declared_type
+
+    if target is None:
+        return value
+
+    # bool must be checked before int (bool is subclass of int in Python)
+    if target is bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.lower() in ("true", "1", "yes")
+        return bool(value)
+
+    if target is int:
+        if isinstance(value, int) and not isinstance(value, bool):
+            return value
+        try:
+            return int(value)
+        except (ValueError, TypeError):
+            logger.warning(
+                "Cannot coerce '%s' value %r to int — keeping as-is", name, value
+            )
+            return value
+
+    if target is float:
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return float(value)
+        try:
+            return float(value)
+        except (ValueError, TypeError):
+            logger.warning(
+                "Cannot coerce '%s' value %r to float — keeping as-is", name, value
+            )
+            return value
+
+    if target is str:
+        return str(value)
+
+    return value
 
 
 def _inherit_global_to_category(g: GlobalConfig) -> dict[str, Any]:
