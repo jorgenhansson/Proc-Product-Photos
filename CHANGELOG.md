@@ -7,6 +7,42 @@ All notable changes to Proc-Product-Photos are documented here.
 - Pending: naming convention based on Dimbo image angle codes
 - Pending: 14 additional product categories (IRON_SET, GLOVE, CAP, etc.)
 - Pending: testing on 8000 production images
+- Pending: thumbnail contact sheet (#36)
+- Pending: incremental mode (#38)
+
+## [0.8.0] - 2026-03-28
+
+### Added
+- Quality gate: auto-pause on high category failure rate (#37)
+  - `QualityGateConfig` with check_interval, min_samples, min_success_rate
+  - Actions: warn (log + continue), abort (raise + exit 2), ignore
+  - CLI flags: `--quality-gate warn|abort|ignore`, `--no-quality-gate`
+  - Configurable in rules.yaml `quality_gate:` section
+  - Per-category monitoring, top-3 flags in warning message
+  - Works in both sequential and parallel modes
+- Diff report tool for comparing pipeline runs (#39)
+  - `python -m process_images.diff --before v1.json --after v2.json`
+  - Console + HTML reports
+  - Tracks improved/regressed/unchanged/new/removed images
+  - Per-category success rate deltas
+  - Flag addition/removal tracking
+  - Fill ratio change tracking
+- `--results` flag for per-image results JSON export
+- `results_to_json()` on StatsAccumulator
+
+### Fixed
+- Pipeline reuse: `run()` resets stats, collision state, and quality gate (#22)
+- Same Pipeline instance can safely be called multiple times
+- `perf_counter` for StatsAccumulator timing (was wall clock) (#25)
+
+## [0.7.0] - 2026-03-28
+
+### Added
+- Checkpoint/resume support for crash recovery (#35)
+  - `--resume`: skip already-processed images from checkpoint
+  - `--force`: resume even if rules YAML changed
+  - `--no-checkpoint`: disable checkpoint writing
+  - Atomic writes via tmp+rename, SHA-256 config hash drift detection
 
 ## [0.6.0] - 2026-03-28
 
