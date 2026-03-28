@@ -199,20 +199,31 @@ class TestIncrementalForceCategory:
     def test_force_category_case_insensitive(self, dirs):
         """Force category matching should be case-insensitive."""
         input_dir, output_dir, review_dir = dirs
-        _save_test_image(input_dir / "IMG.png")
+        _save_test_image(input_dir / "BALL1.png")
+        _save_test_image(input_dir / "BALL2.png")
 
-        mapping = _make_mapping(("IMG", "A0", "front", "SHOE"))
+        mapping = _make_mapping(
+            ("BALL1", "A0", "front", "BALL"),
+            ("BALL2", "A1", "front", "BALL"),
+        )
         config = _config()
         pipeline = Pipeline(config, mapping, ClassicalCropStrategy())
 
-        pipeline.run(input_dir, output_dir, review_dir)
+        # First run — both should produce output
+        stats1 = pipeline.run(input_dir, output_dir, review_dir)
+        ok_count = sum(
+            1 for r in stats1.results
+            if r.status in (ProcessingStatus.OK, ProcessingStatus.RECOVERED)
+        )
+        assert ok_count == 2, f"First run should succeed, got {ok_count}/2"
 
+        # Incremental with lowercase force — should reprocess both
         stats2 = pipeline.run(
             input_dir, output_dir, review_dir,
             incremental=True,
-            force_categories={"shoe"},  # lowercase
+            force_categories={"ball"},  # lowercase — must still match BALL
         )
-        assert stats2.total_attempted == 1
+        assert stats2.total_attempted == 2
 
 
 class TestIncrementalWithMissingMapping:

@@ -755,7 +755,9 @@ class Pipeline:
             # Check if category is forced
             if force_categories:
                 rows = self.mapping.lookup(sku)
-                if rows and rows[0].category.upper() in force_categories:
+                # Both sides uppercased for case-insensitive match
+                force_upper = {c.upper() for c in force_categories}
+                if rows and rows[0].category.upper() in force_upper:
                     to_process.append(img_path)
                     continue
 
