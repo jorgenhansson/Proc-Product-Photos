@@ -82,6 +82,14 @@ def main(
         False, "--no-checkpoint",
         help="Disable checkpoint writing (for clean runs)",
     ),
+    quality_gate: Optional[str] = typer.Option(
+        None, "--quality-gate",
+        help="Quality gate action: warn, abort, or ignore (overrides rules YAML)",
+    ),
+    no_quality_gate: bool = typer.Option(
+        False, "--no-quality-gate",
+        help="Disable quality gate checks entirely",
+    ),
 ) -> None:
     """Process supplier product images: crop, resize, rename, and place on canvas."""
     # -- Logging --
@@ -128,6 +136,20 @@ def main(
         config.global_config.output_format = output_format.lower().replace("jpeg", "jpg")
     if overwrite:
         config.global_config.overwrite = True
+
+    # Quality gate overrides
+    if no_quality_gate:
+        config.quality_gate.enabled = False
+    elif quality_gate is not None:
+        valid_actions = ("warn", "abort", "ignore")
+        if quality_gate not in valid_actions:
+            log.error(
+                "Invalid --quality-gate value '%s'. Valid: %s",
+                quality_gate, ", ".join(valid_actions),
+            )
+            raise typer.Exit(1)
+        config.quality_gate.enabled = True
+        config.quality_gate.action = quality_gate
 
     log.info(
         "Config: %d categories, fallback=%s, canvas=%dpx, format=%s, overwrite=%s",
@@ -191,13 +213,23 @@ def main(
             cp = new_checkpoint(cp_path, config_hash)
 
     # -- Run pipeline --
-    from .pipeline import Pipeline
+    from .pipeline import Pipeline, QualityGateError
 
     pipeline = Pipeline(config, mapping, primary, fallback)
-    stats = pipeline.run(
-        input_dir, output_dir, review_dir,
-        limit=limit, workers=num_workers, checkpoint=cp,
-    )
+    try:
+        stats = pipeline.run(
+            input_dir, output_dir, review_dir,
+            limit=limit, workers=num_workers, checkpoint=cp,
+        )
+    except QualityGateError as e:
+        stats = pipeline.stats
+        log.error("Pipeline aborted by quality gate:\n%s", e.detail)
+        # Still write partial stats and manifest
+        summary = stats.to_console()
+        log.info("\n%s", summary)
+        if stats_file:
+            stats.to_json(stats_file)
+        raise typer.Exit(2)
 
     # -- Output --
     summary = stats.to_console()

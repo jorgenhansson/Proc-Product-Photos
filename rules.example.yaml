@@ -57,6 +57,16 @@ fallback:
   validation_tolerance: 0.7
 
 # ---------------------------------------------------------------------------
+# Quality gate — auto-pause on high category failure rate
+# ---------------------------------------------------------------------------
+quality_gate:
+  enabled: true
+  check_interval: 50          # check every N images processed
+  min_samples: 10             # need at least N images in a category before checking
+  min_success_rate: 0.70      # pause if success rate drops below 70%
+  action: warn                # warn = log and continue | abort = stop pipeline | ignore = skip
+
+# ---------------------------------------------------------------------------
 # Category-specific crop rules — ASYMMETRIC MARGINS
 #
 # Derived from analysis of real supplier images:

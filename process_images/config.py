@@ -103,11 +103,23 @@ class FallbackConfig:
 
 
 @dataclass
+class QualityGateConfig:
+    """Configuration for the quality gate that pauses on high failure rates."""
+
+    enabled: bool = True
+    check_interval: int = 50
+    min_samples: int = 10
+    min_success_rate: float = 0.70
+    action: str = "warn"  # warn | abort | ignore
+
+
+@dataclass
 class PipelineConfig:
     """Complete pipeline configuration assembled from YAML."""
 
     global_config: GlobalConfig = field(default_factory=GlobalConfig)
     fallback: FallbackConfig = field(default_factory=FallbackConfig)
+    quality_gate: QualityGateConfig = field(default_factory=QualityGateConfig)
     categories: dict[str, CategoryConfig] = field(default_factory=dict)
 
     def get_category_config(self, category: str) -> CategoryConfig:
@@ -135,6 +147,9 @@ def load_config(path: Path) -> PipelineConfig:
 
     if "fallback" in raw:
         _apply_dataclass(raw["fallback"], config.fallback)
+
+    if "quality_gate" in raw:
+        _apply_dataclass(raw["quality_gate"], config.quality_gate)
 
     if "categories" in raw:
         for name, cat_raw in raw["categories"].items():

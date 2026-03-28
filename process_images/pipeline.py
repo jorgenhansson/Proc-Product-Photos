@@ -34,6 +34,14 @@ from .validators import validate_crop_result
 logger = logging.getLogger(__name__)
 
 
+class QualityGateError(RuntimeError):
+    """Raised when quality gate action is 'abort' and a category breaches."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.detail = message
+
+
 # ---------------------------------------------------------------------------
 # Top-level worker function (must be picklable → module-level, not a method)
 # ---------------------------------------------------------------------------
@@ -248,8 +256,10 @@ class Pipeline:
         self.mapping = mapping
         self.primary = primary
         self.fallback = fallback
+        # Mutable per-run state — reset in run() (#22)
         self.stats = StatsAccumulator()
         self._seen_outputs: set[str] = set()
+        self._quality_gate_aborted: bool = False
 
     def run(
         self,
@@ -273,7 +283,16 @@ class Pipeline:
 
         Returns:
             StatsAccumulator with all results.
+
+        Raises:
+            QualityGateError: If quality gate action is 'abort' and a
+                category drops below the minimum success rate.
         """
+        # -- Reset per-run state (#22) --
+        self.stats = StatsAccumulator()
+        self._seen_outputs = set()
+        self._quality_gate_aborted = False
+
         images = discover_images(input_dir)
         self.stats.total_discovered = len(images)
         logger.info("Discovered %d images in %s", len(images), input_dir)
@@ -322,6 +341,8 @@ class Pipeline:
     ) -> None:
         """Process images one by one (original behavior)."""
         flush_interval = 10  # flush checkpoint every N images
+        qg = self.config.quality_gate
+
         for i, img_path in enumerate(images, 1):
             logger.info(
                 "[%d/%d] Processing %s", i, len(images), img_path.name
@@ -338,6 +359,15 @@ class Pipeline:
                 )
                 if i % flush_interval == 0:
                     checkpoint.flush()
+
+            # Quality gate check
+            if qg.enabled and i % qg.check_interval == 0:
+                breach = self._check_quality_gate()
+                if breach:
+                    if qg.action == "abort":
+                        self._quality_gate_aborted = True
+                        raise QualityGateError(breach)
+                    # "warn" — log and continue
 
     def _run_parallel(
         self,
@@ -423,6 +453,17 @@ class Pipeline:
                         self.stats.total_flagged,
                         self.stats.total_failed,
                     )
+
+                # Quality gate check
+                qg = self.config.quality_gate
+                if qg.enabled and completed % qg.check_interval == 0:
+                    breach = self._check_quality_gate()
+                    if breach and qg.action == "abort":
+                        self._quality_gate_aborted = True
+                        # Cancel remaining futures
+                        for f in futures:
+                            f.cancel()
+                        raise QualityGateError(breach)
 
     def _materialize_result(
         self,
@@ -655,7 +696,66 @@ class Pipeline:
             result.output_paths.append(out_path)
 
     # ------------------------------------------------------------------
-    # Sequential-mode methods (unchanged from original)
+    # Quality gate
+    # ------------------------------------------------------------------
+
+    def _check_quality_gate(self) -> str:
+        """Check per-category success rates against quality gate thresholds.
+
+        Returns an empty string if all categories pass, or a detailed
+        warning message if any category breaches the threshold.
+        """
+        qg = self.config.quality_gate
+        if not qg.enabled:
+            return ""
+
+        from collections import Counter
+
+        cat_ok: Counter[str] = Counter()
+        cat_total: Counter[str] = Counter()
+        cat_flags: dict[str, Counter[str]] = {}
+
+        for r in self.stats.results:
+            cat = r.category or "UNKNOWN"
+            cat_total[cat] += 1
+            if r.status in (ProcessingStatus.OK, ProcessingStatus.RECOVERED):
+                cat_ok[cat] += 1
+            else:
+                if cat not in cat_flags:
+                    cat_flags[cat] = Counter()
+                for f in r.flags:
+                    cat_flags[cat][f.value] += 1
+
+        breaches: list[str] = []
+        for cat, total in cat_total.items():
+            if total < qg.min_samples:
+                continue
+            ok = cat_ok[cat]
+            rate = ok / total
+            if rate < qg.min_success_rate:
+                top_flags = ""
+                if cat in cat_flags:
+                    top_3 = cat_flags[cat].most_common(3)
+                    top_flags = ", ".join(f"{name} ({cnt})" for name, cnt in top_3)
+                breaches.append(
+                    f"  {cat}: {total - ok}/{total} flagged "
+                    f"({rate:.0%} success, threshold: {qg.min_success_rate:.0%})\n"
+                    f"    Top flags: {top_flags}"
+                )
+
+        if not breaches:
+            return ""
+
+        message = (
+            "Quality gate triggered!\n"
+            + "\n".join(breaches)
+            + "\n  Suggestion: check category rules in rules.yaml"
+        )
+        logger.warning("WARNING: %s", message)
+        return message
+
+    # ------------------------------------------------------------------
+    # Sequential-mode methods
     # ------------------------------------------------------------------
 
     def _save_review(
