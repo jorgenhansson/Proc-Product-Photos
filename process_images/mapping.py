@@ -27,8 +27,12 @@ class MappingLookup:
     issues: list[tuple[Flag, str]] = field(default_factory=list)
 
     def lookup(self, sku: str) -> list[MappingRow]:
-        """Find all mapping rows for a supplier SKU."""
-        return self.rows_by_sku.get(sku, [])
+        """Find all mapping rows for a supplier SKU.
+
+        Lookup is case-insensitive to handle case-insensitive filesystems
+        (macOS APFS/HFS+). Original case is preserved in MappingRow.
+        """
+        return self.rows_by_sku.get(sku.lower(), [])
 
 
 def load_mapping(path: Path) -> MappingLookup:
@@ -117,9 +121,10 @@ def load_mapping(path: Path) -> MappingLookup:
 
         output_filenames.append(out_name)
 
-        if sku not in rows_by_sku:
-            rows_by_sku[sku] = []
-        rows_by_sku[sku].append(mapping_row)
+        sku_key = sku.lower()
+        if sku_key not in rows_by_sku:
+            rows_by_sku[sku_key] = []
+        rows_by_sku[sku_key].append(mapping_row)
 
     # Check for duplicate output filenames
     filename_counts = Counter(output_filenames)

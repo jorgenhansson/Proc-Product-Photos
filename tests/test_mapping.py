@@ -14,14 +14,26 @@ class TestLoadMapping:
     def test_load_csv(self, sample_mapping_csv: Path):
         result = load_mapping(sample_mapping_csv)
         assert len(result.rows_by_sku) == 3
-        assert "IMG001" in result.rows_by_sku
-        assert result.rows_by_sku["IMG001"][0].category == "CLUB_LONG"
+        # Keys are case-folded (lowercase)
+        assert "img001" in result.rows_by_sku
+        # Original case preserved in MappingRow
+        assert result.rows_by_sku["img001"][0].supplier_sku == "IMG001"
+        assert result.rows_by_sku["img001"][0].category == "CLUB_LONG"
 
     def test_lookup_existing(self, sample_mapping_csv: Path):
         result = load_mapping(sample_mapping_csv)
         rows = result.lookup("IMG002")
         assert len(rows) == 1
         assert rows[0].store_article == "100002"
+
+    def test_lookup_case_insensitive(self, sample_mapping_csv: Path):
+        """Lookup should match regardless of case (#30)."""
+        result = load_mapping(sample_mapping_csv)
+        assert len(result.lookup("IMG001")) == 1
+        assert len(result.lookup("img001")) == 1
+        assert len(result.lookup("Img001")) == 1
+        # All return the same row with original case
+        assert result.lookup("img001")[0].supplier_sku == "IMG001"
 
     def test_lookup_missing(self, sample_mapping_csv: Path):
         result = load_mapping(sample_mapping_csv)
@@ -93,5 +105,5 @@ class TestLoadMapping:
         )
         df.to_excel(xlsx_path, index=False)
         result = load_mapping(xlsx_path)
-        assert "IMG001" in result.rows_by_sku
-        assert result.rows_by_sku["IMG001"][0].category == "SHOE"
+        assert "img001" in result.rows_by_sku
+        assert result.rows_by_sku["img001"][0].category == "SHOE"

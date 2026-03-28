@@ -103,7 +103,8 @@ def _process_worker(
         pass
 
     # -- Mapping lookup --
-    rows_data = mapping_rows_by_sku.get(sku) or mapping_rows_by_sku.get(img_path.name)
+    # Case-insensitive lookup (keys in mapping_rows_by_sku are lowercase)
+    rows_data = mapping_rows_by_sku.get(sku.lower()) or mapping_rows_by_sku.get(img_path.name.lower())
     if not rows_data:
         out["flags"] = [Flag.MISSING_MAPPING]
         out["status"] = ProcessingStatus.FLAGGED

@@ -41,7 +41,7 @@ def _make_mapping(*entries) -> MappingLookup:
             supplier_sku=sku, store_article=article,
             suffix=suffix, category=cat,
         )
-        rows_by_sku.setdefault(sku, []).append(row)
+        rows_by_sku.setdefault(sku.lower(), []).append(row)
     return MappingLookup(rows_by_sku=rows_by_sku)
 
 
